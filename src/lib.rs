@@ -27,7 +27,7 @@ pub use app::{AppExt, ReadConfig};
 #[derive(Component)]
 pub struct ConfigData {
     /// Context information passed to [`ConfigField::spawn_world`].
-    pub ctx: SpawnContext,
+    pub ctx:        SpawnContext,
     /// The generation of a field, used for change detection.
     pub generation: FieldGeneration,
 }
@@ -39,9 +39,7 @@ pub struct ConfigData {
 pub struct FieldGeneration(NonZeroU64);
 
 impl Default for FieldGeneration {
-    fn default() -> Self {
-        FieldGeneration(const{NonZeroU64::new(1).unwrap()})
-    }
+    fn default() -> Self { FieldGeneration(const { NonZeroU64::new(1).unwrap() }) }
 }
 
 impl FieldGeneration {
@@ -74,14 +72,33 @@ pub trait ConfigField: 'static {
 
     /// The type returned when reading the config data from the world.
     type Reader<'a>;
+
     /// Type-specific metadata specified by the referrer.
     type Metadata: Default + 'static + Send + Sync;
+
+    /// Type returned by [`ConfigField::changed`].
+    ///
+    /// The return type of this function is often opaque, but guarantees that:
+    /// - It can be safely persisted in the world due to thread safety and static lifetime.
+    /// - It can be [cloned](Clone) at a cheaper cost (than the original data, on average).
+    /// - It can be compared for [equality](Eq) with the previous value
+    ///   to determine whether the config data has changed.
+    type Changed: Clone + Eq + 'static + Send + Sync;
 
     /// Reads config data for user consumption from a query of config data entities.
     fn read_world<'a>(
         query: &'a Query<EntityRef, With<ConfigData>>,
         spawn_handle: &Self::SpawnHandle,
     ) -> Self::Reader<'a>;
+
+    /// Computes an [equivalence class](Eq) that represents whether the config data has changed.
+    ///
+    /// If the config data has been changed, the result returned by this function
+    /// will be [unequal](Eq::ne) to the result obtained before the change.
+    fn changed(
+        query: &Query<(&ConfigData, EntityRef)>,
+        spawn_handle: &Self::SpawnHandle,
+    ) -> Self::Changed;
 }
 
 /// Determines how a [`ConfigField`] implementor interacts with a [`Manager`] type.
@@ -112,6 +129,7 @@ pub trait ConfigFieldFor<M>: ConfigField {
 /// In addition to direct use in [`ConfigField`] implementations,
 /// this is also the conventional type used by [`Manager`]s to interact with the actual data
 /// which they are monomorphized for in [`manager::Supports::new_entity_for_type`].
+/// Managers generally only interact with scalar fields directly.
 #[derive(Component)]
 pub struct ScalarData<T>(pub T);
 
@@ -123,6 +141,7 @@ macro_rules! impl_scalar_config_field {
             type SpawnHandle = $crate::__import::Entity;
             type Reader<$lt> = $mapped_ty;
             type Metadata = $metadata;
+            type Changed = $crate::FieldGeneration;
 
             fn read_world<'a>(
                 query: &'a $crate::__import::Query<
@@ -140,6 +159,17 @@ macro_rules! impl_scalar_config_field {
                 );
                 $map_fn(&data.0)
             }
+
+            fn changed(
+                query: &$crate::__import::Query<(&$crate::ConfigData, $crate::__import::EntityRef)>,
+                &spawn_handle: &$crate::__import::Entity,
+            ) -> Self::Changed {
+                let entity = query.get(spawn_handle).expect(
+                    "entity managed by config field must remain active as long as the config \
+                     handle is used",
+                );
+                entity.0.generation
+            }
         }
 
         impl<M: $crate::manager::Supports<$ty>> $crate::ConfigFieldFor<M> for $ty {
@@ -152,7 +182,10 @@ macro_rules! impl_scalar_config_field {
                     world.resource_mut::<$crate::manager::Instance<M>>().new_entity::<$ty>();
                 world
                     .spawn((
-                        $crate::ConfigData { ctx, generation: $crate::__import::Default::default() },
+                        $crate::ConfigData {
+                            ctx,
+                            generation: $crate::__import::Default::default(),
+                        },
                         $crate::ScalarData($default_from_metadata(metadata)),
                         manager_comps,
                     ))

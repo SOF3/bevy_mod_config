@@ -15,13 +15,16 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/SOF3/bevy_mod_config"
 
 [features]
+std = []
 serde = ["dep:serde"]
+serde_json = ["serde", "dep:serde_json", "std", "serde_json/std"]
 
 [dependencies]
 bevy_app = { version = "0.16.1", default-features = false }
 bevy_ecs = { version = "0.16.1", default-features = false }
 bevy_mod_config_macros = { path = "macros", version = "0.1.0" }
 hashbrown = "0.15.4"
+variadics_please = "1.1.0"
 
 serde = { version = "1.0", default-features = false, optional = true, features = ["alloc"] }
-variadics_please = "1.1.0"
+serde_json = { version = "1.0", default-features = false, optional = true }

@@ -4,7 +4,7 @@ use bevy_ecs::bundle::Bundle;
 use bevy_ecs::resource::Resource;
 
 #[cfg(feature = "serde")]
-mod serde;
+pub mod serde;
 #[cfg(feature = "serde")]
 pub use serde::Serde;
 

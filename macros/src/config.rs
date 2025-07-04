@@ -96,10 +96,11 @@ fn gen_read_struct(
 
     if input.named_fields {
         let read_fields = input.fields.iter().map(|field| {
+            let field_vis = field.vis;
             let field_ident = field.ident.ident().expect("named_fields implies Ident");
-            let field_ty = &field.data.ty;
+            let field_ty = field.data.ty;
             quote! {
-                #field_ident: <#field_ty as #crate_path::ConfigField>::Reader<'a>,
+                #field_vis #field_ident: <#field_ty as #crate_path::ConfigField>::Reader<'a>,
             }
         });
         quote! {
@@ -186,10 +187,11 @@ fn gen_changed_struct(
 
     if input.named_fields {
         let changed_fields = input.fields.iter().map(|field| {
+            let field_vis = field.vis;
             let field_ident = field.ident.ident().expect("named_fields implies Ident");
-            let field_ty = &field.data.ty;
+            let field_ty = field.data.ty;
             quote! {
-                #field_ident: <#field_ty as #crate_path::ConfigField>::Changed,
+                #field_vis #field_ident: <#field_ty as #crate_path::ConfigField>::Changed,
             }
         });
         let changed_derives = changed_derives(crate_path);
@@ -201,7 +203,7 @@ fn gen_changed_struct(
         }
     } else {
         let changed_fields = input.fields.iter().map(|field| {
-            let field_ty = &field.data.ty;
+            let field_ty = field.data.ty;
             quote! {
                 <#field_ty as #crate_path::ConfigField>::Changed,
             }
@@ -357,9 +359,9 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
                     .get(*__config_spawn_handle)
                     .expect("entity managed by config field must remain active as long as the config handle is used");
                 let data = entity
-                    .get::<#crate_path::ScalarData<#discrim_ident>>()
+                    .get::<#crate_path::ScalarData<#crate_path::EnumDiscriminantWrapper<#discrim_ident>>>()
                     .expect("entity must have been spawned with a ScalarData of the corresponding type");
-                data.0
+                data.0.0
             }
 
             fn changed(
@@ -377,7 +379,7 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
         }
 
         impl<__ConfigManager: #crate_path::Manager> #crate_path::ConfigFieldFor<__ConfigManager> for #discrim_ident
-        where __ConfigManager: #crate_path::manager::Supports<#discrim_ident> {
+        where __ConfigManager: #crate_path::manager::Supports<#crate_path::EnumDiscriminantWrapper<#discrim_ident>> {
             fn spawn_world(
                 __config_world: &mut #crate_path::__import::World,
                 __config_ctx: #crate_path::SpawnContext,
@@ -385,10 +387,10 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
             ) -> Self::SpawnHandle {
                 let __config_manager_comp = __config_world
                     .resource_mut::<#crate_path::manager::Instance<__ConfigManager>>()
-                    .new_entity::<#discrim_ident>();
+                    .new_entity::<#crate_path::EnumDiscriminantWrapper<#discrim_ident>>();
                 __config_world.spawn((
                     #crate_path::ConfigData { ctx: __config_ctx, generation: #crate_path::__import::Default::default()  },
-                    #crate_path::ScalarData(__config_metadata.default),
+                    #crate_path::ScalarData(#crate_path::EnumDiscriminantWrapper(__config_metadata.default)),
                     __config_manager_comp,
                 ))
                     .id()
@@ -656,12 +658,17 @@ fn dead_code_workaround(input: &Input) -> TokenStream {
             let variant_ctors = enum_input.variants.iter().map(|variant| {
                 let variant_ident = &variant.ident;
                 let ctor_fn_ident = format_ident!("ctor_{variant_ident}");
-                let (variant_fields, params): (Vec<_>, Vec<_>) = variant.fields.iter().enumerate().map(|(index, field)| {
-                    let field_ident = &field.ident;
-                    let binding = syn::Ident::new(&format!("field_{index}"), field.span);
-                    let field_ty = &field.data.ty;
-                    (quote!(#field_ident: #binding), quote!(#binding: #field_ty))
-                }).unzip();
+                let (variant_fields, params): (Vec<_>, Vec<_>) = variant
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .map(|(index, field)| {
+                        let field_ident = &field.ident;
+                        let binding = syn::Ident::new(&format!("field_{index}"), field.span);
+                        let field_ty = &field.data.ty;
+                        (quote!(#field_ident: #binding), quote!(#binding: #field_ty))
+                    })
+                    .unzip();
                 quote! {
                     fn #ctor_fn_ident(#(#params),*) -> #input_ident {
                         #input_ident::#variant_ident {
@@ -673,11 +680,16 @@ fn dead_code_workaround(input: &Input) -> TokenStream {
 
             let variant_users = enum_input.variants.iter().map(|variant| {
                 let variant_ident = &variant.ident;
-                let (variant_fields, drop_fields): (Vec<_>, Vec<_>) = variant.fields.iter().enumerate().map(|(index, field)| {
-                    let field_ident = &field.ident;
-                    let binding = syn::Ident::new(&format!("field_{index}"), field.span);
-                    (quote!(#field_ident: #binding), quote!(drop(#binding);))
-                }).unzip();
+                let (variant_fields, drop_fields): (Vec<_>, Vec<_>) = variant
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .map(|(index, field)| {
+                        let field_ident = &field.ident;
+                        let binding = syn::Ident::new(&format!("field_{index}"), field.span);
+                        (quote!(#field_ident: #binding), quote!(drop(#binding);))
+                    })
+                    .unzip();
                 quote! {
                     #input_ident::#variant_ident { #(#variant_fields),* } => {
                         #(#drop_fields)*
@@ -977,6 +989,7 @@ impl<'a> StructInput<'a> {
                 };
                 let metadata = metadata_from_attrs(&field.attrs)?;
                 Ok(InputField {
+                    vis: &field.vis,
                     ident,
                     span: field.span(),
                     data: InputFieldData {
@@ -1036,6 +1049,7 @@ impl<'a> EnumInput<'a> {
                         };
                         let metadata = metadata_from_attrs(&field.attrs)?;
                         Ok(InputField {
+                            vis: &field.vis,
                             ident,
                             span: field.span(),
                             data: InputFieldData {
@@ -1118,6 +1132,7 @@ enum FieldSyntax {
 }
 
 struct InputField<'a> {
+    vis:   &'a syn::Visibility,
     ident: InputFieldIdent<'a>,
     span:  Span,
     data:  InputFieldData<'a>,

@@ -9,7 +9,7 @@ use bevy_ecs::entity::Entity;
 use bevy_ecs::query::With;
 use bevy_ecs::world::{EntityRef, EntityWorldMut, World};
 use hashbrown::HashMap;
-use serde::de::DeserializeOwned;
+use serde::de::{DeserializeOwned, MapAccess};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -24,8 +24,13 @@ pub trait Adapter: Send + Sync + 'static {
 
     type SerInput<'a>: Serializer;
 
-    type DeInput<'a>;
-    type DeError;
+    type DeInput<'de>: Deserializer<'de>;
+    type DeKey<'de>: fmt::Debug + Deserialize<'de>;
+    fn index_map_by_de_key<'de, 'map, V>(
+        &self,
+        map: &'map HashMap<Vec<String>, V>,
+        key: Self::DeKey<'de>,
+    ) -> Option<&'map V>;
 }
 
 pub trait TypedAdapter: Send + Sync + 'static {
@@ -38,10 +43,11 @@ pub trait TypedAdapter: Send + Sync + 'static {
         ser: &mut Self::SerContext<'a>,
     ) -> Result<(), Self::SerError<'a>>;
 
-    type DeContext<'a>;
-    type DeError;
-    fn de_once(&self, entity: EntityWorldMut, de: Self::DeContext<'_>)
-    -> Result<(), Self::DeError>;
+    fn deserialize_map_value<'de, M: MapAccess<'de>>(
+        &self,
+        entity: EntityWorldMut,
+        map: &mut M,
+    ) -> Result<(), M::Error>;
 }
 
 /// A [`Manager`] that serializes config data using Serde.
@@ -95,18 +101,26 @@ impl<A: Adapter> Serde<A> {
         map_ser.end()
     }
 
-    pub fn deserialize(&self, world: &mut World, input: A::DeInput<'_>) -> Result<(), A::DeError> {
+    pub fn deserialize<'de>(
+        &self,
+        world: &mut World,
+        input: A::DeInput<'de>,
+    ) -> Result<(), <A::DeInput<'de> as Deserializer<'de>>::Error> {
         let keys: HashMap<_, _> = self
             .keys_with_types(world)
             .into_iter()
             .map(|((path, entity), typed)| (path, (entity, typed)))
             .collect();
-        todo!()
+
+        let visitor = Visitor { adapter: &self.adapter, keys, world };
+        input.deserialize_map(visitor)
     }
 }
 
 struct Visitor<'a, A: Adapter> {
-    keys: HashMap<Vec<String>, (Entity, &'a Typed<A::Typed>)>,
+    adapter: &'a A,
+    keys:    HashMap<Vec<String>, (Entity, &'a Typed<A::Typed>)>,
+    world:   &'a mut World,
 }
 
 impl<'de, A: Adapter> serde::de::Visitor<'de> for Visitor<'_, A> {
@@ -116,11 +130,17 @@ impl<'de, A: Adapter> serde::de::Visitor<'de> for Visitor<'_, A> {
         formatter.write_str("a map")
     }
 
-    fn visit_map<M>(self, map: M) -> Result<Self::Value, M::Error>
+    fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
     where
-        M: serde::de::MapAccess<'de>,
+        M: MapAccess<'de>,
     {
-        todo!()
+        while let Some(key) = map.next_key::<A::DeKey<'de>>()? {
+            if let Some(&(entity_id, typed)) = self.adapter.index_map_by_de_key(&self.keys, key) {
+                let entity = self.world.entity_mut(entity_id);
+                typed.adapter.deserialize_map_value(entity, &mut map)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -155,9 +175,10 @@ mod json {
     use std::io::{self, BufReader, BufWriter};
 
     use bevy_ecs::world::{EntityRef, EntityWorldMut, World};
-    use serde::Serialize;
-    use serde::de::{DeserializeOwned, Deserializer as _};
-    use serde::ser::{SerializeMap as _, Serializer as _};
+    use hashbrown::HashMap;
+    use serde::de::{Error as _, MapAccess};
+    use serde::ser::SerializeMap as _;
+    use serde_json::value::RawValue;
 
     use crate::ScalarData;
 
@@ -173,7 +194,7 @@ mod json {
     impl<T: io::Read + Any> AnyRead for T {}
 
     type Writer = BufWriter<Box<dyn AnyWrite>>;
-    type Reader = BufReader<Box<dyn AnyRead>>;
+    type Reader = serde_json::de::IoRead<BufReader<Box<dyn AnyRead>>>;
 
     #[derive(Clone)]
     pub struct TypedVtable {
@@ -186,23 +207,38 @@ mod json {
             &[String],
             &mut <&mut serde_json::Serializer<Writer> as serde::Serializer>::SerializeMap,
         ) -> serde_json::Result<()>,
+        de:  fn(EntityWorldMut, &RawValue) -> Result<(), serde_json::Error>,
     }
 
     impl super::Adapter for JsonAdapter {
         type Typed = TypedVtable;
         fn for_type<T: super::SerdeScalar>(&mut self) -> Self::Typed {
             TypedVtable {
-                ser: |entity: EntityRef, path: &[String], ser: &mut <&mut serde_json::Serializer<Writer> as serde::Serializer>::SerializeMap| {
+                ser: |entity, path, ser: &mut <&mut serde_json::Serializer<Writer> as serde::Serializer>::SerializeMap| {
                     let value = entity.get::<ScalarData<T>>().expect("type checked in serde query");
                     ser.serialize_entry(&path.join("."), value.0.as_serialize())
-                }
+                },
+                de: |mut entity, value| {
+                    let value: T::Deserialize = serde_json::from_str(value.get()).map_err(serde_json::Error::custom)?;
+                    let mut entry = entity.get_mut::<ScalarData::<T>>().expect("type checked in serde qurey");
+                    entry.0.set_deserialized(value);
+                    Ok(())
+                },
             }
         }
 
         type SerInput<'a> = &'a mut serde_json::Serializer<Writer>;
 
-        type DeInput<'a> = &'a mut serde_json::Deserializer<BufReader<Box<dyn io::Read>>>;
-        type DeError = serde_json::Error;
+        type DeInput<'de> = &'de mut serde_json::Deserializer<Reader>;
+        type DeKey<'de> = String;
+        fn index_map_by_de_key<'de, 'map, V>(
+            &self,
+            map: &'map HashMap<Vec<String>, V>,
+            key: Self::DeKey<'de>,
+        ) -> Option<&'map V> {
+            let key: Vec<_> = key.split('.').map(String::from).collect();
+            map.get(&key)
+        }
     }
 
     impl super::TypedAdapter for TypedVtable {
@@ -218,27 +254,58 @@ mod json {
             (self.ser)(entity, path, ser)
         }
 
-        type DeContext<'a> = ();
-        type DeError = serde_json::Error;
-        fn de_once(
+        fn deserialize_map_value<'de, M: MapAccess<'de>>(
             &self,
             entity: EntityWorldMut,
-            de: Self::DeContext<'_>,
-        ) -> Result<(), Self::DeError> {
-            todo!()
+            map: &mut M,
+        ) -> Result<(), M::Error> {
+            // Deserialize the value into a consistent type instead of the generic `MapAccess`
+            // so that it can be passed to the vtable without knowing `M` during startup.
+            // This is a terrible hack, but it is necessary for type erasure.
+            let value: Box<RawValue> = map.next_value()?;
+            (self.de)(entity, &value).map_err(M::Error::custom)
         }
     }
 
     impl super::Serde<JsonAdapter> {
+        /// Serialize all config data in the world to a JSON string.
         pub fn to_string(&self, world: &mut World) -> Result<String, serde_json::Error> {
-            let writer: Writer = BufWriter::new(Box::new(Vec::<u8>::new()) as Box<dyn AnyWrite>);
+            let bytes = self.to_writer(world, Vec::<u8>::new())?;
+            String::from_utf8(bytes).map_err(<serde_json::Error as serde::ser::Error>::custom)
+        }
+
+        /// Serialize all config data in the world to a [writer](io::Write).
+        pub fn to_writer<W: Any + io::Write>(
+            &self,
+            world: &mut World,
+            writer: W,
+        ) -> Result<W, serde_json::Error> {
+            let writer: Writer = BufWriter::new(Box::new(writer) as Box<dyn AnyWrite>);
             let mut serializer = serde_json::ser::Serializer::new(writer);
             self.serialize_all(world, &mut serializer)?;
-            let box_vec =
-                serializer.into_inner().into_inner().ok().expect("Vec<u8> as Write is infallible");
-            let bytes = *Box::<dyn Any>::downcast::<Vec<u8>>(box_vec)
-                .expect("Serializer should preserve the underlying type");
-            String::from_utf8(bytes).map_err(<serde_json::Error as serde::ser::Error>::custom)
+            let boxed = serializer.into_inner().into_inner().map_err(serde_json::Error::custom)?;
+            Ok(*Box::<dyn Any>::downcast::<W>(boxed)
+                .expect("Serializer should preserve the underlying type"))
+        }
+
+        /// Deserialize config data from a JSON string.
+        ///
+        /// There is no special implementation for UTF-8-validated inputs (e.g. `&str`),
+        /// because supporting that would require an extra vtable entry for each type,
+        /// which appears unnecessary for negligible overhead in foreseeable use cases.
+        /// If you have found a use case where
+        /// benchmarks show significant improvement from `&str` support,
+        /// please open an issue.
+        pub fn from_reader<R: Any + io::Read>(
+            &self,
+            world: &mut World,
+            reader: R,
+        ) -> Result<(), serde_json::Error> {
+            let mut deserializer = serde_json::Deserializer::from_reader(BufReader::new(Box::new(
+                reader,
+            )
+                as Box<dyn AnyRead>));
+            self.deserialize(world, &mut deserializer)
         }
     }
 }
@@ -250,14 +317,14 @@ pub trait SerdeScalar: Send + Sync + 'static {
     fn as_serialize(&self) -> &(impl Serialize + ?Sized);
 
     type Deserialize: DeserializeOwned;
-    fn from_deserialized(&mut self, value: Self::Deserialize);
+    fn set_deserialized(&mut self, value: Self::Deserialize);
 }
 
 impl<T: Serialize + DeserializeOwned + Send + Sync + 'static> SerdeScalar for T {
     fn as_serialize(&self) -> &(impl Serialize + ?Sized) { self }
 
     type Deserialize = Self;
-    fn from_deserialized(&mut self, value: Self::Deserialize) { *self = value; }
+    fn set_deserialized(&mut self, value: Self::Deserialize) { *self = value; }
 }
 
 const _: () = {
@@ -265,7 +332,7 @@ const _: () = {
         fn as_serialize(&self) -> &(impl Serialize + ?Sized) { self.0.name() }
 
         type Deserialize = DeserializeEnumDiscriminant<T>;
-        fn from_deserialized(&mut self, value: Self::Deserialize) { self.0 = value.0; }
+        fn set_deserialized(&mut self, value: Self::Deserialize) { self.0 = value.0; }
     }
 
     pub struct DeserializeEnumDiscriminant<T>(T);

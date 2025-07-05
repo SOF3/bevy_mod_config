@@ -27,4 +27,4 @@ hashbrown = "0.15.4"
 variadics_please = "1.1.0"
 
 serde = { version = "1.0", default-features = false, optional = true, features = ["alloc"] }
-serde_json = { version = "1.0", default-features = false, optional = true }
+serde_json = { version = "1.0", default-features = false, optional = true, features = ["raw_value", "std"] }

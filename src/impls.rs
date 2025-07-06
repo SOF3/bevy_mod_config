@@ -37,5 +37,22 @@ impl_scalar_config_field!(
 
 #[derive(Default)]
 pub struct StringMetadata {
-    pub default: String,
+    pub default:    String,
+    pub min_length: Option<usize>,
+    pub max_length: Option<usize>,
+}
+
+#[cfg(feature = "bevy_color")]
+impl_scalar_config_field!(
+    bevy_color::Color,
+    ColorMetadata,
+    |metadata: &ColorMetadata| metadata.default,
+    'a => bevy_color::Color,
+    |&value: &bevy_color::Color| value,
+);
+
+#[cfg(feature = "bevy_color")]
+#[derive(Default)]
+pub struct ColorMetadata {
+    pub default: bevy_color::Color,
 }

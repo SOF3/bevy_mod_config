@@ -15,9 +15,12 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/SOF3/bevy_mod_config"
 
 [features]
+default = ["std", "bevy_color", "serde"]
 std = []
-serde = ["dep:serde"]
+serde = ["dep:serde", "bevy_color?/serde"]
 serde_json = ["serde", "dep:serde_json", "std", "serde_json/std"]
+egui = ["dep:bevy_egui"]
+bevy_color = ["dep:bevy_color"]
 
 [dependencies]
 bevy_app = { version = "0.16.1", default-features = false }
@@ -28,3 +31,26 @@ variadics_please = "1.1.0"
 
 serde = { version = "1.0", default-features = false, optional = true, features = ["alloc"] }
 serde_json = { version = "1.0", default-features = false, optional = true, features = ["raw_value", "std"] }
+bevy_egui = { version = "0.35.0", default-features = false, optional = true }
+bevy_color = { version = "0.16.2", optional = true }
+
+[dev-dependencies]
+bevy_log = "0.16.1"
+bevy_time = "0.16.1"
+
+[dev-dependencies.bevy]
+version = "0.16.1"
+default-features = false
+features = [
+    "accesskit_unix",
+    "bevy_core_pipeline",
+    "bevy_log",
+    "bevy_render",
+    "bevy_window",
+    "bevy_winit",
+    "android-game-activity",
+    "png",
+    "std",
+    "webgl2",
+    "x11",
+]

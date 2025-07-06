@@ -11,6 +11,6 @@ pub use core::stringify;
 
 pub use bevy_ecs::component::Component;
 pub use bevy_ecs::entity::Entity;
-pub use bevy_ecs::query::With;
+pub use bevy_ecs::query::{QueryData, With};
 pub use bevy_ecs::system::Query;
 pub use bevy_ecs::world::{EntityRef, World};

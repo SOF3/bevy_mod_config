@@ -20,12 +20,12 @@ enum Color {
 struct Rgba(f32, f32, f32, f32);
 
 #[cfg(feature = "serde_json")]
-type ManagerType = (bevy_mod_config::manager::serde::Json,);
+type ManagerType = bevy_mod_config::manager::serde::Json;
 #[cfg(not(feature = "serde_json"))]
 type ManagerType = ();
 
-#[cfg_attr(test, test)]
-fn main() {
+#[test]
+fn test_run() {
     let mut app = bevy_app::App::new();
     app.init_config::<ManagerType, Settings>("ui");
     app.add_systems(bevy_app::Update, |settings: ReadConfig<Settings>| {
@@ -45,8 +45,7 @@ fn main() {
 fn dump_json(app: &mut bevy_app::App) {
     use bevy_mod_config::manager;
 
-    let (json,) = &app.world_mut().resource::<manager::Instance<ManagerType>>().instance;
-    let json = json.clone();
+    let json = &app.world_mut().resource::<manager::Instance<ManagerType>>().instance.clone();
     let data = json.to_string(app.world_mut()).unwrap();
     assert_eq!(
         data,
@@ -67,9 +66,11 @@ fn load_json(app: &mut bevy_app::App) {
         "ui.color.Named:code": "red"
     }"#,
     );
-    let (json,) =
-        &app.world_mut().resource::<bevy_mod_config::manager::Instance<ManagerType>>().instance;
-    let json = json.clone();
+    let json = app
+        .world_mut()
+        .resource::<bevy_mod_config::manager::Instance<ManagerType>>()
+        .instance
+        .clone();
     json.from_reader(app.world_mut(), Cursor::new(input)).unwrap();
 
     app.world_mut()

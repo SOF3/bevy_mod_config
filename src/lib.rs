@@ -8,12 +8,12 @@ use core::iter;
 use core::num::NonZeroU64;
 
 use bevy_ecs::component::Component;
-use bevy_ecs::query::With;
-use bevy_ecs::system::Query;
-use bevy_ecs::world::{EntityRef, World};
+use bevy_ecs::query::QueryData;
+use bevy_ecs::world::World;
 
 mod impls;
-
+mod query;
+pub use query::QueryLike;
 mod enum_;
 pub use enum_::{EnumDiscriminant, EnumDiscriminantWrapper};
 pub mod manager;
@@ -74,6 +74,7 @@ pub trait ConfigField: 'static {
 
     /// The type returned when reading the config data from the world.
     type Reader<'a>;
+    type ReadQueryData: QueryData;
 
     /// Type-specific metadata specified by the referrer.
     type Metadata: Default + 'static + Send + Sync;
@@ -86,10 +87,13 @@ pub trait ConfigField: 'static {
     /// - It can be compared for [equality](Eq) with the previous value
     ///   to determine whether the config data has changed.
     type Changed: Clone + Eq + 'static + Send + Sync;
+    type ChangedQueryData: QueryData;
 
     /// Reads config data for user consumption from a query of config data entities.
     fn read_world<'a>(
-        query: &'a Query<EntityRef, With<ConfigData>>,
+        query: impl QueryLike<
+            Item = <<Self::ReadQueryData as QueryData>::ReadOnly as QueryData>::Item<'a>,
+        >,
         spawn_handle: &Self::SpawnHandle,
     ) -> Self::Reader<'a>;
 
@@ -97,8 +101,13 @@ pub trait ConfigField: 'static {
     ///
     /// If the config data has been changed, the result returned by this function
     /// will be [unequal](PartialEq::ne) to the result obtained before the change.
-    fn changed(
-        query: &Query<(&ConfigData, EntityRef)>,
+    fn changed<'a>(
+        query: impl QueryLike<
+            Item = (
+                &'a ConfigData,
+                <<Self::ChangedQueryData as QueryData>::ReadOnly as QueryData>::Item<'a>,
+            ),
+        >,
         spawn_handle: &Self::SpawnHandle,
     ) -> Self::Changed;
 }
@@ -141,28 +150,24 @@ macro_rules! impl_scalar_config_field {
         impl $crate::ConfigField for $ty {
             type SpawnHandle = $crate::__import::Entity;
             type Reader<$lt> = $mapped_ty;
+            type ReadQueryData = Option<&'static $crate::ScalarData<Self>>;
             type Metadata = $metadata;
             type Changed = $crate::FieldGeneration;
+            type ChangedQueryData = ();
 
             fn read_world<'a>(
-                query: &'a $crate::__import::Query<
-                    $crate::__import::EntityRef,
-                    $crate::__import::With<$crate::ConfigData>,
-                >,
+                query: impl $crate::QueryLike<Item = <<Self::ReadQueryData as $crate::__import::QueryData>::ReadOnly as $crate::__import::QueryData>::Item<'a>>,
                 &spawn_handle: &$crate::__import::Entity,
             ) -> Self::Reader<'a> {
-                let entity = query.get(spawn_handle).expect(
+                let data = query.get(spawn_handle).expect(
                     "entity managed by config field must remain active as long as the config \
                      handle is used",
                 );
-                let data = entity.get::<$crate::ScalarData<$ty>>().expect(
-                    "entity must have been spawned with a ScalarData of the corresponding type",
-                );
-                $map_fn(&data.0)
+                $map_fn(&data.as_ref().expect("scalar data component must remain valid with Self type").0)
             }
 
-            fn changed(
-                query: &$crate::__import::Query<(&$crate::ConfigData, $crate::__import::EntityRef)>,
+            fn changed<'a>(
+                query: impl $crate::QueryLike<Item = (&'a $crate::ConfigData, <<Self::ChangedQueryData as $crate::__import::QueryData>::ReadOnly as $crate::__import::QueryData>::Item<'a>)>,
                 &spawn_handle: &$crate::__import::Entity,
             ) -> Self::Changed {
                 let entity = query.get(spawn_handle).expect(

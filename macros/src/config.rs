@@ -309,13 +309,14 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
         }
     });
 
+    let import = quote!(#crate_path::__import);
     quote! {
         #[derive(
-            #crate_path::__import::Debug,
-            #crate_path::__import::Clone,
-            #crate_path::__import::Copy,
-            #crate_path::__import::PartialEq,
-            #crate_path::__import::Eq,
+            #import::Debug,
+            #import::Clone,
+            #import::Copy,
+            #import::PartialEq,
+            #import::Eq,
         )]
         #vis enum #discrim_ident { #(#variant_names,)* }
 
@@ -334,40 +335,40 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
                 }
             }
 
-            fn from_name(name: &str) -> #crate_path::__import::Option<Self> {
+            fn from_name(name: &str) -> #import::Option<Self> {
                 match name {
                     #(#from_name_arms)*
-                    _ => #crate_path::__import::None,
+                    _ => #import::None,
                 }
             }
         }
 
         impl #crate_path::ConfigField for #discrim_ident {
-            type SpawnHandle = #crate_path::__import::Entity;
+            type SpawnHandle = #import::Entity;
             type Reader<'a> = #discrim_ident;
+            type ReadQueryData = Option<&'static #crate_path::ScalarData<#crate_path::EnumDiscriminantWrapper<#discrim_ident>>>;
             type Metadata = #metadata_ident;
             type Changed = #crate_path::FieldGeneration;
+            type ChangedQueryData = ();
 
             fn read_world<'a>(
-                __config_query: &'a #crate_path::__import::Query<
-                    #crate_path::__import::EntityRef,
-                    #crate_path::__import::With<#crate_path::ConfigData>,
+                __config_query: impl #crate_path::QueryLike<
+                    Item = <<Self::ReadQueryData as #import::QueryData>::ReadOnly as #import::QueryData>::Item<'a>,
                 >,
                 __config_spawn_handle: &Self::SpawnHandle,
             ) -> Self::Reader<'a> {
-                let entity = __config_query
+                __config_query
                     .get(*__config_spawn_handle)
-                    .expect("entity managed by config field must remain active as long as the config handle is used");
-                let data = entity
-                    .get::<#crate_path::ScalarData<#crate_path::EnumDiscriminantWrapper<#discrim_ident>>>()
-                    .expect("entity must have been spawned with a ScalarData of the corresponding type");
-                data.0.0
+                    .expect("entity managed by config field must remain active as long as the config handle is used") // Option<ScalarData<Wrapper<Discrim>>>
+                    .as_ref().expect("scalar data component must remain valid with Self type") // ScalarData<Wrapper<Discrim>>
+                    .0 // ScalarData<Wrapper<Discrim>>
+                    .0 // Discrim
             }
 
-            fn changed(
-                __config_query: &#crate_path::__import::Query<(
-                    &#crate_path::ConfigData,
-                    #crate_path::__import::EntityRef,
+            fn changed<'a>(
+                __config_query: impl #crate_path::QueryLike<Item = (
+                    &'a #crate_path::ConfigData,
+                    (),
                 )>,
                 &__config_spawn_handle: &Self::SpawnHandle,
             ) -> Self::Changed {
@@ -381,7 +382,7 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
         impl<__ConfigManager: #crate_path::Manager> #crate_path::ConfigFieldFor<__ConfigManager> for #discrim_ident
         where __ConfigManager: #crate_path::manager::Supports<#crate_path::EnumDiscriminantWrapper<#discrim_ident>> {
             fn spawn_world(
-                __config_world: &mut #crate_path::__import::World,
+                __config_world: &mut #import::World,
                 __config_ctx: #crate_path::SpawnContext,
                 __config_metadata: &Self::Metadata,
             ) -> Self::SpawnHandle {
@@ -389,7 +390,7 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
                     .resource_mut::<#crate_path::manager::Instance<__ConfigManager>>()
                     .new_entity::<#crate_path::EnumDiscriminantWrapper<#discrim_ident>>();
                 __config_world.spawn((
-                    #crate_path::ConfigData { ctx: __config_ctx, generation: #crate_path::__import::Default::default()  },
+                    #crate_path::ConfigData { ctx: __config_ctx, generation: #import::Default::default()  },
                     #crate_path::ScalarData(#crate_path::EnumDiscriminantWrapper(__config_metadata.default)),
                     __config_manager_comp,
                 ))
@@ -401,7 +402,7 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
             pub default: #discrim_ident,
         }
 
-        impl #crate_path::__import::Default for #metadata_ident {
+        impl #import::Default for #metadata_ident {
             fn default() -> Self {
                 Self { default: #discrim_ident::#default_variant_name }
             }
@@ -413,8 +414,8 @@ fn gen_impl_config_field(crate_path: &syn::Path, idents: &Idents, input: &Input)
     let input_ident = &input.ident;
     let Idents { spawn_handle_ident, read_ident, changed_ident, .. } = idents;
     let spawn_world = gen_spawn_world(crate_path, idents, input);
-    let read_world = gen_read_world(crate_path, idents, input);
-    let changed_fn = gen_changed_fn(crate_path, idents, input);
+    let (read_query_data, read_world) = gen_read_world(crate_path, idents, input);
+    let (changed_query_data, changed_fn) = gen_changed_fn(crate_path, idents, input);
 
     let where_clauses = input.data.iter_field_data().map(|field| {
         let field_ty = &field.ty;
@@ -423,26 +424,31 @@ fn gen_impl_config_field(crate_path: &syn::Path, idents: &Idents, input: &Input)
         }
     });
 
+    let import = quote!(#crate_path::__import);
+
     quote! {
         impl #crate_path::ConfigField for #input_ident {
-            type Reader<'a> = #read_ident<'a>;
             type SpawnHandle = #spawn_handle_ident;
+            type Reader<'a> = #read_ident<'a>;
+            type ReadQueryData = #read_query_data;
             type Metadata = #crate_path::StructMetadata;
             type Changed = #changed_ident;
+            type ChangedQueryData = #changed_query_data;
 
             fn read_world<'a>(
-                __config_query: &'a #crate_path::__import::Query<
-                    #crate_path::__import::EntityRef,
-                    #crate_path::__import::With<#crate_path::ConfigData>,
+                __config_query: impl #crate_path::QueryLike<
+                    Item = <<Self::ReadQueryData as #import::QueryData>::ReadOnly as #import::QueryData>::Item<'a>,
                 >,
                 __config_spawn_handle: &Self::SpawnHandle,
             ) -> Self::Reader<'a> { #read_world }
 
-            fn changed(
-                __config_query: &#crate_path::__import::Query<(
-                    &#crate_path::ConfigData,
-                    #crate_path::__import::EntityRef,
-                )>,
+            fn changed<'a>(
+                __config_query: impl #crate_path::QueryLike<
+                    Item = (
+                        &'a #crate_path::ConfigData,
+                        <<Self::ChangedQueryData as #import::QueryData>::ReadOnly as #import::QueryData>::Item<'a>,
+                    ),
+                >,
                 __config_spawn_handle: &Self::SpawnHandle,
             ) -> Self::Changed { #changed_fn }
         }
@@ -451,7 +457,7 @@ fn gen_impl_config_field(crate_path: &syn::Path, idents: &Idents, input: &Input)
         #crate_path::ConfigFieldFor<__ConfigManager> for #input_ident
         where #(#where_clauses)* {
             fn spawn_world(
-                __config_world: &mut #crate_path::__import::World,
+                __config_world: &mut #import::World,
                 __config_ctx: #crate_path::SpawnContext,
                 _: &Self::Metadata,
             ) -> Self::SpawnHandle { #spawn_world }
@@ -492,7 +498,11 @@ fn gen_spawn_world(crate_path: &syn::Path, idents: &Idents, input: &Input) -> To
     }
 }
 
-fn gen_read_world(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenStream {
+fn gen_read_world(
+    crate_path: &syn::Path,
+    idents: &Idents,
+    input: &Input,
+) -> (TokenStream, TokenStream) {
     match input.data {
         InputData::Struct(ref struct_input) => {
             gen_read_world_struct(crate_path, idents, struct_input)
@@ -505,37 +515,55 @@ fn gen_read_world_struct(
     crate_path: &syn::Path,
     idents: &Idents,
     input: &StructInput,
-) -> TokenStream {
+) -> (TokenStream, TokenStream) {
     let read_ident = &idents.read_ident;
 
-    let read_fields = input.fields.iter().map(|field| {
+    let (field_read_query_data, read_fields): (Vec<_>, Vec<_>) = input.fields.iter().enumerate().map(|(field_index, field)| {
+        let field_index = syn::Index { index: field_index as u32, span: field.span };
         let field_ident = &field.ident;
         let field_ty = &field.data.ty;
         let spawn_handle_ident = &field.data.spawn_handle_field;
-        quote! {
+        let read_query_data = quote!(<#field_ty as #crate_path::ConfigField>::ReadQueryData);
+        let ctor_field = quote! {
             #field_ident: <#field_ty as #crate_path::ConfigField>::read_world(
-                __config_query,
+                #crate_path::QueryLike::map(__config_query, |__config_data_item| __config_data_item.#field_index),
                 &__config_spawn_handle.#spawn_handle_ident,
             )
-        }
-    });
+        };
+        (read_query_data, ctor_field)
+    }).unzip();
 
-    quote! {
-        #read_ident {
-            #(#read_fields,)*
-        }
-    }
+    (
+        quote! {
+            (
+                #(#field_read_query_data,)*
+            )
+        },
+        quote! {
+            #read_ident {
+                #(#read_fields,)*
+            }
+        },
+    )
 }
 
-fn gen_read_world_enum(crate_path: &syn::Path, idents: &Idents, input: &EnumInput) -> TokenStream {
+fn gen_read_world_enum(
+    crate_path: &syn::Path,
+    idents: &Idents,
+    input: &EnumInput,
+) -> (TokenStream, TokenStream) {
     let discrim_spawn_handle_field = &input.discrim.spawn_handle_field;
     let discrim_ident = idents.discrim_ident().expect("Enum must have a discriminant type");
     let discrim = quote! {(
         <#discrim_ident as #crate_path::ConfigField>::read_world(
-            __config_query,
+            #crate_path::QueryLike::map(__config_query, |__config_data_item| __config_data_item.0),
             &__config_spawn_handle.#discrim_spawn_handle_field,
         )
     )};
+    let mut field_read_query_data: Vec<_> = [quote! {
+        <#discrim_ident as #crate_path::ConfigField>::ReadQueryData
+    }]
+    .into();
 
     let read_ident = &idents.read_ident;
     let read_variants = input.variants.iter().map(|variant| {
@@ -544,29 +572,43 @@ fn gen_read_world_enum(crate_path: &syn::Path, idents: &Idents, input: &EnumInpu
             let field_ident = &field.ident;
             let field_ty = &field.data.ty;
             let spawn_handle_ident = &field.data.spawn_handle_field;
+            let data_tuple_index = syn::Index { index: field_read_query_data.len() as u32, span: field.span };
+            field_read_query_data.push(quote!(<#field_ty as #crate_path::ConfigField>::ReadQueryData));
+
             quote! {
                 #field_ident: <#field_ty as #crate_path::ConfigField>::read_world(
-                    __config_query,
+                    #crate_path::QueryLike::map(__config_query, |__config_data_item| __config_data_item.#data_tuple_index),
                     &__config_spawn_handle.#spawn_handle_ident,
                 ),
             }
-        });
+        }).collect::<Vec<_>>();
 
         quote! {
             #discrim_ident::#variant_ident => #read_ident::#variant_ident {
                 #(#variant_fields)*
             },
         }
-    });
+    }).collect::<Vec<_>>();
 
-    quote! {
-        match #discrim {
-            #(#read_variants)*
-        }
-    }
+    (
+        quote! {
+            (
+                #(#field_read_query_data,)*
+            )
+        },
+        quote! {
+            match #discrim {
+                #(#read_variants)*
+            }
+        },
+    )
 }
 
-fn gen_changed_fn(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenStream {
+fn gen_changed_fn(
+    crate_path: &syn::Path,
+    idents: &Idents,
+    input: &Input,
+) -> (TokenStream, TokenStream) {
     match input.data {
         InputData::Struct(ref struct_input) => {
             gen_changed_fn_struct(crate_path, idents, struct_input)
@@ -579,38 +621,59 @@ fn gen_changed_fn_struct(
     crate_path: &syn::Path,
     idents: &Idents,
     input: &StructInput,
-) -> TokenStream {
+) -> (TokenStream, TokenStream) {
     let changed_ident = &idents.changed_ident;
 
-    let changed_fields = input.fields.iter().map(|field| {
+    let (field_changed_query_data, changed_fields): (Vec<_>, Vec<_>) = input.fields.iter().enumerate().map(|(field_index, field)| {
+        let field_index = syn::Index { index: field_index as u32, span: field.span };
         let field_ident = &field.ident;
         let field_ty = &field.data.ty;
         let spawn_handle_ident = &field.data.spawn_handle_field;
-        quote! {
-            #field_ident: <#field_ty as #crate_path::ConfigField>::changed(
-                __config_query,
-                &__config_spawn_handle.#spawn_handle_ident,
-            )
-        }
-    });
+        (
+            quote!(<#field_ty as #crate_path::ConfigField>::ChangedQueryData),
+            quote! {
+                #field_ident: <#field_ty as #crate_path::ConfigField>::changed(
+                    #crate_path::QueryLike::map(__config_query, |__config_data_item| (__config_data_item.0, __config_data_item.1.#field_index)),
+                    &__config_spawn_handle.#spawn_handle_ident,
+                )
+            },
+        )
+    }).unzip();
 
-    quote! {
-        #changed_ident {
-            #(#changed_fields,)*
-        }
-    }
+    (
+        quote! {
+            (
+                #(#field_changed_query_data,)*
+            )
+        },
+        quote! {
+            #changed_ident {
+                #(#changed_fields,)*
+            }
+        },
+    )
 }
 
-fn gen_changed_fn_enum(crate_path: &syn::Path, idents: &Idents, input: &EnumInput) -> TokenStream {
+fn gen_changed_fn_enum(
+    crate_path: &syn::Path,
+    idents: &Idents,
+    input: &EnumInput,
+) -> (TokenStream, TokenStream) {
     let discrim_spawn_handle_field = &input.discrim.spawn_handle_field;
     let discrim_ident = idents.discrim_ident().expect("Enum must have a discriminant type");
     let discrim = quote! {(
-        __config_query.get(__config_spawn_handle.#discrim_spawn_handle_field).expect(
-            "entity managed by config field must remain active as long as the config handle is used"
-        ).1.get::<#crate_path::ScalarData<#discrim_ident>>().expect(
-            "discriminant entity must have been spawned with a ScalarData of the corresponding type",
-        ).0
+        #crate_path::QueryLike::get(__config_query, __config_spawn_handle.#discrim_spawn_handle_field)
+            .expect(
+                "entity managed by config field must remain active as long as the config handle is used"
+            ) // (&ConfigData, Self::ChangedQueryData)
+            .1 // Self::ChangedQueryData = (&ScalarData<Discrim>, ..)
+            .0 // &ScalarData<Discrim>
+            .0 // Discrim
     )};
+    let mut field_changed_query_data: Vec<_> = [quote! {
+        &'static #crate_path::ScalarData<#discrim_ident>
+    }]
+    .into();
 
     let changed_ident = &idents.changed_ident;
     let changed_variants = input.variants.iter().map(|variant| {
@@ -619,26 +682,36 @@ fn gen_changed_fn_enum(crate_path: &syn::Path, idents: &Idents, input: &EnumInpu
             let field_ident = &field.ident;
             let field_ty = &field.data.ty;
             let spawn_handle_ident = &field.data.spawn_handle_field;
+            let data_tuple_index = syn::Index { index: field_changed_query_data.len() as u32, span: field.span };
+            field_changed_query_data.push(quote!(<#field_ty as #crate_path::ConfigField>::ChangedQueryData));
+
             quote! {
                 #field_ident: <#field_ty as #crate_path::ConfigField>::changed(
-                    __config_query,
+                    #crate_path::QueryLike::map(__config_query, |__config_data_item| (__config_data_item.0, __config_data_item.1.#data_tuple_index)),
                     &__config_spawn_handle.#spawn_handle_ident,
                 ),
             }
-        });
+        }).collect::<Vec<_>>();
 
         quote! {
             #discrim_ident::#variant_ident => #changed_ident::#variant_ident {
                 #(#variant_fields)*
             },
         }
-    });
+    }).collect::<Vec<_>>();
 
-    quote! {
-        match #discrim {
-            #(#changed_variants)*
-        }
-    }
+    (
+        quote! {
+            (
+                #(#field_changed_query_data,)*
+            )
+        },
+        quote! {
+            match #discrim {
+                #(#changed_variants)*
+            }
+        },
+    )
 }
 
 fn dead_code_workaround(input: &Input) -> TokenStream {

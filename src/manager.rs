@@ -3,6 +3,11 @@ use core::ops::{Deref, DerefMut};
 use bevy_ecs::bundle::Bundle;
 use bevy_ecs::resource::Resource;
 
+#[cfg(feature = "egui")]
+mod egui;
+#[cfg(feature = "egui")]
+pub use egui::Egui;
+
 #[cfg(feature = "serde")]
 pub mod serde;
 #[cfg(feature = "serde")]

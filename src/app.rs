@@ -5,7 +5,6 @@ use bevy_app::App;
 use bevy_ecs::query::With;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{Query, Res, SystemParam};
-use bevy_ecs::world::EntityRef;
 use hashbrown::HashSet;
 
 use crate::{ConfigData, ConfigField, ConfigFieldFor, Manager, SpawnContext, manager};
@@ -100,7 +99,7 @@ impl AppExt for App {
 
 #[derive(SystemParam)]
 pub struct ReadConfig<'w, 's, C: ConfigField> {
-    query:      Query<'w, 's, EntityRef<'static>, With<ConfigData>>,
+    query:      Query<'w, 's, <C as ConfigField>::ReadQueryData, With<ConfigData>>,
     root_field: Res<'w, RootField<C>>,
 }
 

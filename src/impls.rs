@@ -20,7 +20,7 @@ impl_numeric_config_field!(
     i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize, f32, f64,
 );
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct NumericMetadata<T> {
     pub min:     Option<T>,
     pub max:     Option<T>,
@@ -30,16 +30,17 @@ pub struct NumericMetadata<T> {
 impl_scalar_config_field!(
     String,
     StringMetadata,
-    |metadata: &StringMetadata| metadata.default.clone(),
+    |metadata: &StringMetadata| metadata.default.into(),
     'a => &'a str,
     String::as_str,
 );
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct StringMetadata {
-    pub default:    String,
+    pub default:    &'static str,
     pub min_length: Option<usize>,
     pub max_length: Option<usize>,
+    pub multiline:  bool,
 }
 
 #[cfg(feature = "bevy_color")]
@@ -52,7 +53,9 @@ impl_scalar_config_field!(
 );
 
 #[cfg(feature = "bevy_color")]
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ColorMetadata {
-    pub default: bevy_color::Color,
+    pub default:        bevy_color::Color,
+    pub alpha_blend:    bool,
+    pub alpha_additive: bool,
 }

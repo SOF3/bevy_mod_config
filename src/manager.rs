@@ -4,7 +4,7 @@ use bevy_ecs::bundle::Bundle;
 use bevy_ecs::resource::Resource;
 
 #[cfg(feature = "egui")]
-mod egui;
+pub mod egui;
 #[cfg(feature = "egui")]
 pub use egui::Egui;
 
@@ -17,7 +17,7 @@ pub use serde::Serde;
 ///
 /// A manager is invoked when a scalar config field is spawned in the world,
 /// allowing it to attach behavior to the entity.
-pub trait Manager: Default + Sized + Send + Sync + 'static {
+pub trait Manager: Sized + Send + Sync + 'static {
     /// Returns a component bundle that tracks entity management.
     fn new_entity<T>(&mut self) -> impl Bundle
     where

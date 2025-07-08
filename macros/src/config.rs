@@ -3,7 +3,7 @@ use std::iter;
 use either::Either;
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
-use syn::parse::Parse;
+use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 
@@ -20,7 +20,7 @@ pub fn derive(input: TokenStream) -> syn::Result<TokenStream> {
             item.apply(&mut item_attrs);
         }
     }
-    let idents = Idents::new(&input)?;
+    let idents = Idents::new(&input, &item_attrs)?;
     let input = Input::new(&input, &item_attrs, &idents)?;
 
     let spawn_handle = gen_spawn_handle(&item_attrs.crate_path, &idents, &input);
@@ -30,10 +30,10 @@ pub fn derive(input: TokenStream) -> syn::Result<TokenStream> {
     let impl_config_field = gen_impl_config_field(&item_attrs.crate_path, &idents, &input);
 
     let (spawn_handle_expose, spawn_handle_hidden) =
-        ifelse_tuple(item_attrs.expose_spawn_handle, spawn_handle);
-    let (read_expose, read_hidden) = ifelse_tuple(item_attrs.expose_read, read);
-    let (changed_expose, changed_hidden) = ifelse_tuple(item_attrs.expose_changed, changed);
-    let (discrim_expose, discrim_hidden) = ifelse_tuple(item_attrs.expose_discrim, discrim);
+        ifelse_tuple(item_attrs.expose_spawn_handle.expose, spawn_handle);
+    let (read_expose, read_hidden) = ifelse_tuple(item_attrs.expose_read.expose, read);
+    let (changed_expose, changed_hidden) = ifelse_tuple(item_attrs.expose_changed.expose, changed);
+    let (discrim_expose, discrim_hidden) = ifelse_tuple(item_attrs.expose_discrim.expose, discrim);
 
     let dead_code_workaround = dead_code_workaround(&input);
 
@@ -72,7 +72,14 @@ fn gen_spawn_handle(crate_path: &syn::Path, idents: &Idents, input: &Input) -> T
     quote! {
         #[allow(non_snake_case)]
         #vis struct #spawn_handle_ident {
+            node: #crate_path::__import::Entity,
             #(#spawn_fields)*
+        }
+
+        impl #crate_path::SpawnHandle for #spawn_handle_ident {
+            fn node(&self) -> #crate_path::__import::Entity {
+                self.node
+            }
         }
     }
 }
@@ -367,7 +374,7 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
 
             fn changed<'a>(
                 __config_query: impl #crate_path::QueryLike<Item = (
-                    &'a #crate_path::ConfigData,
+                    &'a #crate_path::ConfigNode,
                     (),
                 )>,
                 &__config_spawn_handle: &Self::SpawnHandle,
@@ -384,17 +391,21 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
             fn spawn_world(
                 __config_world: &mut #import::World,
                 __config_ctx: #crate_path::SpawnContext,
-                __config_metadata: &Self::Metadata,
+                __config_metadata: Self::Metadata,
             ) -> Self::SpawnHandle {
                 let __config_manager_comp = __config_world
                     .resource_mut::<#crate_path::manager::Instance<__ConfigManager>>()
                     .new_entity::<#crate_path::EnumDiscriminantWrapper<#discrim_ident>>();
-                __config_world.spawn((
-                    #crate_path::ConfigData { ctx: __config_ctx, generation: #import::Default::default()  },
+                let mut __config_entity = __config_world.spawn((
+                    #crate_path::ConfigNode { path: __config_ctx.path, generation: #import::Default::default()  },
                     #crate_path::ScalarData(#crate_path::EnumDiscriminantWrapper(__config_metadata.default)),
+                    #crate_path::ScalarMetadata::<Self>(__config_metadata),
                     __config_manager_comp,
-                ))
-                    .id()
+                ));
+                if let #import::Some(__config_parent_id) = __config_ctx.parent {
+                    __config_entity.insert(#crate_path::ChildNodeOf(__config_parent_id));
+                }
+                __config_entity.id()
             }
         }
 
@@ -445,7 +456,7 @@ fn gen_impl_config_field(crate_path: &syn::Path, idents: &Idents, input: &Input)
             fn changed<'a>(
                 __config_query: impl #crate_path::QueryLike<
                     Item = (
-                        &'a #crate_path::ConfigData,
+                        &'a #crate_path::ConfigNode,
                         <<Self::ChangedQueryData as #import::QueryData>::ReadOnly as #import::QueryData>::Item<'a>,
                     ),
                 >,
@@ -459,7 +470,7 @@ fn gen_impl_config_field(crate_path: &syn::Path, idents: &Idents, input: &Input)
             fn spawn_world(
                 __config_world: &mut #import::World,
                 __config_ctx: #crate_path::SpawnContext,
-                _: &Self::Metadata,
+                _: Self::Metadata,
             ) -> Self::SpawnHandle { #spawn_world }
         }
     }
@@ -486,13 +497,24 @@ fn gen_spawn_world(crate_path: &syn::Path, idents: &Idents, input: &Input) -> To
         quote! {
             #field_ident: <#field_ty as #crate_path::ConfigFieldFor<__ConfigManager>>::spawn_world(
                 __config_world,
-                __config_ctx.join(#hierarchy_key),
-                &#metadata,
+                __config_ctx.join(#hierarchy_key, #crate_path::__import::Some(__config_node)),
+                #metadata,
             ),
         }
     });
     quote! {
+        let mut __config_node_entity = __config_world.spawn((
+            #crate_path::ConfigNode {
+                path: __config_ctx.path.clone(),
+                generation: #crate_path::__import::Default::default(),
+            },
+        ));
+        if let #crate_path::__import::Some(__config_parent_id) = __config_ctx.parent {
+            __config_node_entity.insert(#crate_path::ChildNodeOf(__config_parent_id));
+        }
+        let __config_node = __config_node_entity.id();
         #spawn_handle_ident {
+            node: __config_node,
             #(#spawn_fields)*
         }
     }
@@ -665,7 +687,7 @@ fn gen_changed_fn_enum(
         #crate_path::QueryLike::get(__config_query, __config_spawn_handle.#discrim_spawn_handle_field)
             .expect(
                 "entity managed by config field must remain active as long as the config handle is used"
-            ) // (&ConfigData, Self::ChangedQueryData)
+            ) // (&ConfigNode, Self::ChangedQueryData)
             .1 // Self::ChangedQueryData = (&ScalarData<Discrim>, ..)
             .0 // &ScalarData<Discrim>
             .0 // Discrim
@@ -779,7 +801,7 @@ fn dead_code_workaround(input: &Input) -> TokenStream {
         }
     };
     quote! {
-        #[allow(dead_code)]
+        #[allow(dead_code, clippy::drop_non_drop)]
         fn dead_code_workaround(v: #input_ident) {
             #body
         }
@@ -789,10 +811,10 @@ fn dead_code_workaround(input: &Input) -> TokenStream {
 struct ItemAttrs {
     crate_path:          syn::Path,
     debug_print:         bool,
-    expose_spawn_handle: bool,
-    expose_read:         bool,
-    expose_changed:      bool,
-    expose_discrim:      bool,
+    expose_spawn_handle: ExposureAttrs,
+    expose_read:         ExposureAttrs,
+    expose_changed:      ExposureAttrs,
+    expose_discrim:      ExposureAttrs,
     discrim_metadata:    Vec<MetadataEntry>,
 }
 
@@ -801,13 +823,19 @@ impl Default for ItemAttrs {
         Self {
             crate_path:          syn::parse_quote!(::bevy_mod_config),
             debug_print:         false,
-            expose_spawn_handle: false,
-            expose_read:         false,
-            expose_changed:      false,
-            expose_discrim:      false,
+            expose_spawn_handle: ExposureAttrs::default(),
+            expose_read:         ExposureAttrs::default(),
+            expose_changed:      ExposureAttrs::default(),
+            expose_discrim:      ExposureAttrs::default(),
             discrim_metadata:    Vec::new(),
         }
     }
+}
+
+#[derive(Default)]
+struct ExposureAttrs {
+    expose: bool,
+    ident:  Option<syn::Ident>,
 }
 
 struct ItemAttrParse {
@@ -815,7 +843,7 @@ struct ItemAttrParse {
 }
 
 impl Parse for ItemAttrParse {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
         let items = Punctuated::<ItemAttrParseItem, syn::Token![,]>::parse_terminated_with(
             input,
             |input| {
@@ -874,7 +902,29 @@ enum ItemAttrParseItem {
     DiscrimMetadata(Punctuated<MetadataEntry, syn::Token![,]>),
 }
 
-enum ItemAttrExposeItem {
+struct ItemAttrExposeItem {
+    item_type: ItemAttrExposeItemType,
+    ident:     Option<syn::Ident>,
+}
+
+impl ItemAttrExposeItem {
+    fn parse_known<Kw: Parse>(
+        input: ParseStream,
+        item_type: ItemAttrExposeItemType,
+    ) -> syn::Result<Self> {
+        input.parse::<Kw>()?;
+        let ident = input
+            .peek(syn::Token![=])
+            .then(|| {
+                input.parse::<syn::Token![=]>()?;
+                input.parse()
+            })
+            .transpose()?;
+        Ok(Self { item_type, ident })
+    }
+}
+
+enum ItemAttrExposeItemType {
     SpawnHandle,
     Read,
     Changed,
@@ -882,20 +932,19 @@ enum ItemAttrExposeItem {
 }
 
 impl Parse for ItemAttrExposeItem {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
         let lookahead = input.lookahead1();
         if lookahead.peek(kw::spawn_handle) {
-            input.parse::<kw::spawn_handle>()?;
-            Ok(ItemAttrExposeItem::SpawnHandle)
+            ItemAttrExposeItem::parse_known::<kw::spawn_handle>(
+                input,
+                ItemAttrExposeItemType::SpawnHandle,
+            )
         } else if lookahead.peek(kw::read) {
-            input.parse::<kw::read>()?;
-            Ok(ItemAttrExposeItem::Read)
+            ItemAttrExposeItem::parse_known::<kw::read>(input, ItemAttrExposeItemType::Read)
         } else if lookahead.peek(kw::changed) {
-            input.parse::<kw::changed>()?;
-            Ok(ItemAttrExposeItem::Changed)
+            ItemAttrExposeItem::parse_known::<kw::changed>(input, ItemAttrExposeItemType::Changed)
         } else if lookahead.peek(kw::discrim) {
-            input.parse::<kw::discrim>()?;
-            Ok(ItemAttrExposeItem::Discrim)
+            ItemAttrExposeItem::parse_known::<kw::discrim>(input, ItemAttrExposeItemType::Discrim)
         } else {
             Err(lookahead.error())
         }
@@ -912,19 +961,19 @@ impl ItemAttrParseItem {
                 attrs.debug_print = true;
             }
             ItemAttrParseItem::Expose(None) => {
-                attrs.expose_spawn_handle = true;
-                attrs.expose_read = true;
-                attrs.expose_changed = true;
-                attrs.expose_discrim = true;
+                attrs.expose_spawn_handle.expose = true;
+                attrs.expose_read.expose = true;
+                attrs.expose_changed.expose = true;
+                attrs.expose_discrim.expose = true;
             }
             ItemAttrParseItem::Expose(Some(exposed)) => {
                 for item in exposed {
-                    match item {
-                        ItemAttrExposeItem::SpawnHandle => attrs.expose_spawn_handle = true,
-                        ItemAttrExposeItem::Read => attrs.expose_read = true,
-                        ItemAttrExposeItem::Changed => attrs.expose_changed = true,
-                        ItemAttrExposeItem::Discrim => attrs.expose_discrim = true,
-                    }
+                    *match item.item_type {
+                        ItemAttrExposeItemType::SpawnHandle => &mut attrs.expose_spawn_handle,
+                        ItemAttrExposeItemType::Read => &mut attrs.expose_read,
+                        ItemAttrExposeItemType::Changed => &mut attrs.expose_changed,
+                        ItemAttrExposeItemType::Discrim => &mut attrs.expose_discrim,
+                    } = ExposureAttrs { expose: true, ident: item.ident };
                 }
             }
             ItemAttrParseItem::DiscrimMetadata(metadata) => {
@@ -952,15 +1001,32 @@ struct Idents {
 }
 
 impl Idents {
-    fn new(input: &syn::DeriveInput) -> syn::Result<Self> {
+    fn new(input: &syn::DeriveInput, item_attrs: &ItemAttrs) -> syn::Result<Self> {
         let input_ident = &input.ident;
-        let spawn_handle_ident = format_ident!("{input_ident}SpawnHandle");
-        let read_ident = format_ident!("{input_ident}Read");
-        let changed_ident = format_ident!("{input_ident}Changed");
+        let spawn_handle_ident = item_attrs
+            .expose_spawn_handle
+            .ident
+            .clone()
+            .unwrap_or_else(|| format_ident!("{input_ident}SpawnHandle"));
+        let read_ident = item_attrs
+            .expose_read
+            .ident
+            .clone()
+            .unwrap_or_else(|| format_ident!("{input_ident}Read"));
+        let changed_ident = item_attrs
+            .expose_changed
+            .ident
+            .clone()
+            .unwrap_or_else(|| format_ident!("{input_ident}Changed"));
         let discrim_ty = match &input.data {
             syn::Data::Enum(_) => Some(syn::Type::Path(syn::TypePath {
                 qself: None,
-                path:  format_ident!("{input_ident}Discrim").into(),
+                path:  item_attrs
+                    .expose_discrim
+                    .ident
+                    .clone()
+                    .unwrap_or_else(|| format_ident!("{input_ident}Discrim"))
+                    .into(),
             })),
             _ => None,
         };
@@ -1167,7 +1233,7 @@ struct MetadataEntry {
 }
 
 impl Parse for MetadataEntry {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
         let path = Punctuated::<syn::Ident, syn::Token![.]>::parse_separated_nonempty(input)?;
         let _: syn::Token![=] = input.parse()?;
         let value: syn::Expr = input.parse()?;

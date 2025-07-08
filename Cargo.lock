@@ -679,23 +679,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd67c9ddb60d10926899c3eaa022aee43fb92ba507191c62e1ff935b323c5a98"
 dependencies = [
  "bevy_app",
+ "bevy_asset",
+ "bevy_core_pipeline",
  "bevy_derive",
  "bevy_ecs",
+ "bevy_image",
  "bevy_input",
  "bevy_log",
  "bevy_math",
  "bevy_platform",
  "bevy_reflect",
+ "bevy_render",
  "bevy_time",
+ "bevy_transform",
  "bevy_window",
  "bevy_winit",
+ "bytemuck",
  "crossbeam-channel",
  "egui",
+ "encase",
  "image",
  "js-sys",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "wgpu-types",
  "winit",
 ]
 
@@ -725,6 +733,7 @@ dependencies = [
  "bevy_math",
  "bevy_reflect",
  "bevy_render",
+ "bevy_sprite",
  "bevy_time",
  "bevy_transform",
  "bevy_utils",
@@ -935,8 +944,10 @@ dependencies = [
  "bevy_egui",
  "bevy_log",
  "bevy_mod_config_macros",
+ "bevy_sprite",
  "bevy_time",
  "hashbrown",
+ "num-traits",
  "serde",
  "serde_json",
  "variadics_please",
@@ -1783,6 +1794,7 @@ version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc4feb366740ded31a004a0e4452fbf84e80ef432ecf8314c485210229672fd1"
 dependencies = [
+ "bytemuck",
  "emath",
 ]
 
@@ -1811,6 +1823,9 @@ name = "emath"
 version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e4cadcff7a5353ba72b7fea76bf2122b5ebdbc68e8155aa56dfdea90083fe1b"
+dependencies = [
+ "bytemuck",
+]
 
 [[package]]
 name = "encase"
@@ -1879,12 +1894,20 @@ checksum = "41fcc0f5a7c613afd2dee5e4b30c3e6acafb8ad6f0edb06068811f708a67c562"
 dependencies = [
  "ab_glyph",
  "ahash",
+ "bytemuck",
  "ecolor",
  "emath",
+ "epaint_default_fonts",
  "nohash-hasher",
  "parking_lot",
  "profiling",
 ]
+
+[[package]]
+name = "epaint_default_fonts"
+version = "0.31.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc7e7a64c02cf7a5b51e745a9e45f60660a286f151c238b9d397b3e923f5082f"
 
 [[package]]
 name = "equivalent"

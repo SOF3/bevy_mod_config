@@ -4,7 +4,7 @@ use crate::ConfigField;
 ///
 /// [Manager]s that support enum config fields should blanket-implement
 /// [`manager::Supports<T>`](manager::Supports) for all `T: EnumDiscriminant`.
-pub trait EnumDiscriminant: ConfigField + Sized + Copy + Send + Sync + 'static {
+pub trait EnumDiscriminant: ConfigField + Eq + Sized + Copy + Send + Sync + 'static {
     /// Lists all variants of the enum.
     const VARIANTS: &'static [Self];
 
@@ -19,4 +19,5 @@ pub trait EnumDiscriminant: ConfigField + Sized + Copy + Send + Sync + 'static {
 }
 
 /// A [`ConfigField`] implementation that wraps an [`EnumDiscriminant`] implementor.
+#[derive(PartialEq)]
 pub struct EnumDiscriminantWrapper<T>(pub T);

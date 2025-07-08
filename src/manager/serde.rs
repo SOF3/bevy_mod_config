@@ -13,7 +13,7 @@ use serde::de::{DeserializeOwned, MapAccess};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{ConfigData, EnumDiscriminant, EnumDiscriminantWrapper, Manager, ScalarData, manager};
+use crate::{ConfigNode, EnumDiscriminant, EnumDiscriminantWrapper, Manager, ScalarData, manager};
 
 pub trait Adapter: Send + Sync + 'static {
     type Typed: for<'a> TypedAdapter<
@@ -70,6 +70,8 @@ impl<A: Adapter + Default> Default for Serde<A> {
 }
 
 impl<A: Adapter> Serde<A> {
+    pub fn new_with_adapter(adapter: A) -> Self { Serde { adapter, types: HashMap::new() } }
+
     fn keys_with_types(&self, world: &mut World) -> Vec<(ScannedKey, &Typed<A::Typed>)> {
         let mut keys_with_types = Vec::new();
         let types: Vec<_> = self.types.values().collect();
@@ -144,11 +146,11 @@ impl<'de, A: Adapter> serde::de::Visitor<'de> for Visitor<'_, A> {
     }
 }
 
-impl<A: Adapter + Default> Manager for Serde<A> {}
+impl<A: Adapter> Manager for Serde<A> {}
 
 impl<A, T> manager::Supports<T> for Serde<A>
 where
-    A: Adapter + Default,
+    A: Adapter,
     T: SerdeScalar,
 {
     fn new_entity_for_type(&mut self) -> impl Bundle {
@@ -156,9 +158,9 @@ where
             adapter:   self.adapter.for_type::<T>(),
             scan_keys: |world, keys| {
                 let mut query =
-                    world.query_filtered::<(Entity, &ConfigData), With<ScalarData<T>>>();
+                    world.query_filtered::<(Entity, &ConfigNode), With<ScalarData<T>>>();
                 for (entity, config_data) in query.iter(world) {
-                    keys.push((config_data.ctx.path.clone(), entity));
+                    keys.push((config_data.path.clone(), entity));
                 }
             },
         });
@@ -166,7 +168,7 @@ where
 }
 
 #[cfg(feature = "serde_json")]
-mod json {
+pub mod json {
     extern crate std;
     use alloc::boxed::Box;
     use alloc::string::String;
@@ -178,14 +180,50 @@ mod json {
     use hashbrown::HashMap;
     use serde::de::{Error as _, MapAccess};
     use serde::ser::SerializeMap as _;
+    use serde_json::ser::{CompactFormatter, Formatter, PrettyFormatter};
     use serde_json::value::RawValue;
 
     use crate::ScalarData;
 
-    pub type Json = super::Serde<JsonAdapter>;
+    pub type Json = super::Serde<JsonAdapter<CompactFormatter>>;
+    pub type Pretty = super::Serde<JsonAdapter<PrettyFormatter<'static>>>;
 
-    #[derive(Default, Clone)]
-    pub struct JsonAdapter;
+    pub struct JsonAdapter<F> {
+        pub formatter: Box<dyn FormatterBuilder<F>>,
+    }
+
+    impl Json {
+        // This can be removed when `CompactFormatter` implements `Default`.
+        //
+        // See <https://github.com/serde-rs/json/pull/1268>.
+        pub fn new() -> Self {
+            Self::new_with_adapter(JsonAdapter { formatter: Box::new(|| CompactFormatter) })
+        }
+    }
+
+    impl<F: Default + Send + Sync + 'static> Default for JsonAdapter<F> {
+        fn default() -> Self { JsonAdapter { formatter: Box::new(F::default) } }
+    }
+
+    impl<F: Send + Sync + 'static> Clone for JsonAdapter<F> {
+        fn clone(&self) -> Self { JsonAdapter { formatter: self.formatter.clone() } }
+    }
+
+    pub trait FormatterBuilder<F>: Send + Sync + 'static {
+        fn clone(&self) -> Box<dyn FormatterBuilder<F>>;
+        fn call(&self) -> F;
+    }
+
+    impl<T, F> FormatterBuilder<F> for T
+    where
+        T: Fn() -> F + Clone + Send + Sync + 'static,
+    {
+        fn clone(&self) -> Box<dyn FormatterBuilder<F>> {
+            Box::new(Clone::clone(self)) as Box<dyn FormatterBuilder<F>>
+        }
+
+        fn call(&self) -> F { self() }
+    }
 
     pub trait AnyWrite: io::Write + Any {}
     impl<T: io::Write + Any> AnyWrite for T {}
@@ -197,7 +235,7 @@ mod json {
     type Reader = serde_json::de::IoRead<BufReader<Box<dyn AnyRead>>>;
 
     #[derive(Clone)]
-    pub struct TypedVtable {
+    pub struct TypedVtable<F: Formatter> {
         #[expect(
             clippy::type_complexity,
             reason = "HRTBs will make it even more complex to extract out"
@@ -205,16 +243,16 @@ mod json {
         ser: fn(
             EntityRef,
             &[String],
-            &mut <&mut serde_json::Serializer<Writer> as serde::Serializer>::SerializeMap,
+            &mut <&mut serde_json::Serializer<Writer, F> as serde::Serializer>::SerializeMap,
         ) -> serde_json::Result<()>,
         de:  fn(EntityWorldMut, &RawValue) -> Result<(), serde_json::Error>,
     }
 
-    impl super::Adapter for JsonAdapter {
-        type Typed = TypedVtable;
+    impl<F: Formatter + Send + Sync + 'static> super::Adapter for JsonAdapter<F> {
+        type Typed = TypedVtable<F>;
         fn for_type<T: super::SerdeScalar>(&mut self) -> Self::Typed {
             TypedVtable {
-                ser: |entity, path, ser: &mut <&mut serde_json::Serializer<Writer> as serde::Serializer>::SerializeMap| {
+                ser: |entity, path, ser: &mut <&mut serde_json::Serializer<Writer, F> as serde::Serializer>::SerializeMap| {
                     let value = entity.get::<ScalarData<T>>().expect("type checked in serde query");
                     ser.serialize_entry(&path.join("."), value.0.as_serialize())
                 },
@@ -224,10 +262,11 @@ mod json {
                     entry.0.set_deserialized(value);
                     Ok(())
                 },
+
             }
         }
 
-        type SerInput<'a> = &'a mut serde_json::Serializer<Writer>;
+        type SerInput<'a> = &'a mut serde_json::Serializer<Writer, F>;
 
         type DeInput<'de> = &'de mut serde_json::Deserializer<Reader>;
         type DeKey<'de> = String;
@@ -241,9 +280,9 @@ mod json {
         }
     }
 
-    impl super::TypedAdapter for TypedVtable {
+    impl<F: Formatter + Send + Sync + 'static> super::TypedAdapter for TypedVtable<F> {
         type SerContext<'a> =
-            <&'a mut serde_json::Serializer<Writer> as serde::Serializer>::SerializeMap;
+            <&'a mut serde_json::Serializer<Writer, F> as serde::Serializer>::SerializeMap;
         type SerError<'a> = serde_json::Error;
         fn serialize_once<'a>(
             &self,
@@ -267,7 +306,7 @@ mod json {
         }
     }
 
-    impl super::Serde<JsonAdapter> {
+    impl<F: Formatter + Send + Sync + 'static> super::Serde<JsonAdapter<F>> {
         /// Serialize all config data in the world to a JSON string.
         pub fn to_string(&self, world: &mut World) -> Result<String, serde_json::Error> {
             let bytes = self.to_writer(world, Vec::<u8>::new())?;
@@ -281,7 +320,8 @@ mod json {
             writer: W,
         ) -> Result<W, serde_json::Error> {
             let writer: Writer = BufWriter::new(Box::new(writer) as Box<dyn AnyWrite>);
-            let mut serializer = serde_json::ser::Serializer::new(writer);
+            let mut serializer =
+                serde_json::ser::Serializer::with_formatter(writer, self.adapter.formatter.call());
             self.serialize_all(world, &mut serializer)?;
             let boxed = serializer.into_inner().into_inner().map_err(serde_json::Error::custom)?;
             Ok(*Box::<dyn Any>::downcast::<W>(boxed)

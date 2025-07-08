@@ -4,10 +4,11 @@ extern crate alloc;
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::iter;
 use core::num::NonZeroU64;
+use core::{iter, ops};
 
 use bevy_ecs::component::Component;
+use bevy_ecs::entity::Entity;
 use bevy_ecs::query::QueryData;
 use bevy_ecs::world::World;
 
@@ -25,14 +26,39 @@ pub mod __import;
 mod app;
 pub use app::{AppExt, ReadConfig};
 
-/// Marks an entity as a scalar config field.
+/// Marks an entity as a config field node.
 #[derive(Component)]
-pub struct ConfigData {
+pub struct ConfigNode {
     /// Context information passed to [`ConfigFieldFor::spawn_world`].
-    pub ctx:        SpawnContext,
+    pub path:       Vec<String>,
     /// The generation of a field, used for change detection.
     pub generation: FieldGeneration,
 }
+
+/// Marks an entity as a root config node.
+#[derive(Component)]
+pub struct RootNode;
+
+/// Marks an entity as a child node of a config field.
+///
+/// This is a relationship component.
+#[derive(Component)]
+#[relationship(relationship_target = ChildNodeList)]
+pub struct ChildNodeOf(pub Entity);
+
+#[derive(Component)]
+#[relationship_target(relationship = ChildNodeOf)]
+pub struct ChildNodeList(Vec<Entity>);
+
+impl ops::Deref for ChildNodeList {
+    type Target = [Entity];
+
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+
+/// Marks an entity as a scalar config field.
+#[derive(Component)]
+pub struct ScalarField;
 
 /// Tracks the number of changes to a config field.
 ///
@@ -52,25 +78,41 @@ impl FieldGeneration {
 }
 
 /// Context information of the config field from its referrers.
+#[derive(Clone)]
 pub struct SpawnContext {
     /// The hierarchical path from the root config field.
     ///
     /// Uniquely identifies the config field statically.
-    pub path: Vec<String>,
+    pub path:   Vec<String>,
+    /// The parent entity of the config field, if any.
+    pub parent: Option<Entity>,
 }
 
 impl SpawnContext {
     /// Appends a path component to this context.
     #[must_use]
-    pub fn join(&self, key: impl Into<String>) -> Self {
-        SpawnContext { path: self.path.iter().cloned().chain(iter::once(key.into())).collect() }
+    pub fn join(&self, key: impl Into<String>, parent: Option<Entity>) -> Self {
+        SpawnContext {
+            path: self.path.iter().cloned().chain(iter::once(key.into())).collect(),
+            parent,
+        }
     }
+}
+
+/// The spawn handle of a config node.
+pub trait SpawnHandle {
+    /// The entity of the subtree root node.
+    fn node(&self) -> Entity;
+}
+
+impl SpawnHandle for Entity {
+    fn node(&self) -> Entity { *self }
 }
 
 /// Field types that can be used in a [`Config`] struct/enum.
 pub trait ConfigField: 'static {
     /// Remembers where the config data are stored in the world after spawning.
-    type SpawnHandle: 'static + Send + Sync;
+    type SpawnHandle: SpawnHandle + 'static + Send + Sync;
 
     /// The type returned when reading the config data from the world.
     type Reader<'a>;
@@ -104,7 +146,7 @@ pub trait ConfigField: 'static {
     fn changed<'a>(
         query: impl QueryLike<
             Item = (
-                &'a ConfigData,
+                &'a ConfigNode,
                 <<Self::ChangedQueryData as QueryData>::ReadOnly as QueryData>::Item<'a>,
             ),
         >,
@@ -124,13 +166,12 @@ pub trait ConfigField: 'static {
 pub trait ConfigFieldFor<M>: ConfigField {
     /// Spawns entities in the world to store config data.
     ///
-    /// Each spawned entity MUST have a [`ConfigData`] component
+    /// Each spawned entity MUST have a [`ConfigNode`] component
     /// AND attach the component bundle requested from [`Manager::new_entity`].
-    /// The manager
     fn spawn_world(
         world: &mut World,
         ctx: SpawnContext,
-        metadata: &Self::Metadata,
+        metadata: Self::Metadata,
     ) -> Self::SpawnHandle;
 }
 
@@ -142,6 +183,9 @@ pub trait ConfigFieldFor<M>: ConfigField {
 /// Managers generally only interact with scalar fields directly.
 #[derive(Component)]
 pub struct ScalarData<T>(pub T);
+
+#[derive(Component)]
+pub struct ScalarMetadata<T: ConfigField>(pub T::Metadata);
 
 /// Implements [`ConfigField`] for a scalar (non-composite) type.
 #[macro_export]
@@ -167,7 +211,7 @@ macro_rules! impl_scalar_config_field {
             }
 
             fn changed<'a>(
-                query: impl $crate::QueryLike<Item = (&'a $crate::ConfigData, <<Self::ChangedQueryData as $crate::__import::QueryData>::ReadOnly as $crate::__import::QueryData>::Item<'a>)>,
+                query: impl $crate::QueryLike<Item = (&'a $crate::ConfigNode, <<Self::ChangedQueryData as $crate::__import::QueryData>::ReadOnly as $crate::__import::QueryData>::Item<'a>)>,
                 &spawn_handle: &$crate::__import::Entity,
             ) -> Self::Changed {
                 let entity = query.get(spawn_handle).expect(
@@ -182,20 +226,23 @@ macro_rules! impl_scalar_config_field {
             fn spawn_world(
                 world: &mut $crate::__import::World,
                 ctx: $crate::SpawnContext,
-                metadata: &Self::Metadata,
+                metadata: Self::Metadata,
             ) -> $crate::__import::Entity {
                 let manager_comps =
                     world.resource_mut::<$crate::manager::Instance<M>>().new_entity::<$ty>();
-                world
-                    .spawn((
-                        $crate::ConfigData {
-                            ctx,
+                let mut entity = world.spawn((
+                        $crate::ConfigNode {
+                            path: ctx.path,
                             generation: $crate::__import::Default::default(),
                         },
-                        $crate::ScalarData($default_from_metadata(metadata)),
+                        $crate::ScalarData::<Self>($default_from_metadata(&metadata)),
+                        $crate::ScalarMetadata::<Self>(metadata),
                         manager_comps,
-                    ))
-                    .id()
+                ));
+                if let Some(parent) = ctx.parent {
+                    entity.insert($crate::ChildNodeOf(parent));
+                }
+                entity.id()
             }
         }
     };
@@ -203,5 +250,5 @@ macro_rules! impl_scalar_config_field {
 use impl_scalar_config_field as impl_scalar_config_field_;
 
 /// Metadata type for [`ConfigField`] implementors derived from [`Config`].
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct StructMetadata;

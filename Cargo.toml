@@ -19,7 +19,7 @@ default = ["std", "bevy_color", "serde"]
 std = []
 serde = ["dep:serde", "bevy_color?/serde"]
 serde_json = ["serde", "dep:serde_json", "std", "serde_json/std"]
-egui = ["dep:bevy_egui"]
+egui = ["dep:bevy_egui", "dep:num-traits"]
 bevy_color = ["dep:bevy_color"]
 
 [dependencies]
@@ -33,10 +33,13 @@ serde = { version = "1.0", default-features = false, optional = true, features =
 serde_json = { version = "1.0", default-features = false, optional = true, features = ["raw_value", "std"] }
 bevy_egui = { version = "0.35.0", default-features = false, optional = true }
 bevy_color = { version = "0.16.2", optional = true }
+num-traits = { version = "0.2.19", optional = true }
 
 [dev-dependencies]
 bevy_log = "0.16.1"
 bevy_time = "0.16.1"
+bevy_egui = { version = "0.35.0", default-features = false, features = ["default_fonts", "render"] }
+bevy_sprite = "0.16.1"
 
 [dev-dependencies.bevy]
 version = "0.16.1"
@@ -46,6 +49,7 @@ features = [
     "bevy_core_pipeline",
     "bevy_log",
     "bevy_render",
+    "bevy_sprite",
     "bevy_window",
     "bevy_winit",
     "android-game-activity",
@@ -54,3 +58,7 @@ features = [
     "webgl2",
     "x11",
 ]
+
+[[example]]
+name = "egui"
+required-features = ["egui", "bevy_color"]

@@ -2,12 +2,11 @@ use alloc::string::String;
 use core::any::{TypeId, type_name};
 
 use bevy_app::App;
-use bevy_ecs::query::With;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{Query, Res, SystemParam};
 use hashbrown::HashSet;
 
-use crate::{ConfigData, ConfigField, ConfigFieldFor, Manager, SpawnContext, manager};
+use crate::{ConfigField, ConfigFieldFor, Manager, RootNode, SpawnContext, SpawnHandle, manager};
 
 /// Extension trait for [App] to initialize config systems.
 pub trait AppExt {
@@ -24,11 +23,23 @@ pub trait AppExt {
     ///
     /// To ensure the same manager type is used across your game,
     /// it is recommended to reuse a type alias for the desired manager type.
-    fn init_config<M: Manager, C: ConfigFieldFor<M>>(
+    fn init_config<M, C>(&mut self, key: impl Into<String>) -> &mut Self
+    where
+        M: Manager + Default,
+        C: ConfigFieldFor<M>,
+        C::Metadata: Default,
+    {
+        self.init_config_with::<M, C>(key, M::default)
+    }
+
+    fn init_config_with<M, C>(
         &mut self,
         key: impl Into<String>,
+        init: impl FnOnce() -> M,
     ) -> &mut Self
     where
+        M: Manager,
+        C: ConfigFieldFor<M>,
         C::Metadata: Default;
 }
 
@@ -45,8 +56,14 @@ struct RootField<C: ConfigField> {
 }
 
 impl AppExt for App {
-    fn init_config<M: Manager, C: ConfigFieldFor<M>>(&mut self, key: impl Into<String>) -> &mut Self
+    fn init_config_with<M, C>(
+        &mut self,
+        key: impl Into<String>,
+        init: impl FnOnce() -> M,
+    ) -> &mut Self
     where
+        M: Manager,
+        C: ConfigFieldFor<M>,
         C::Metadata: Default,
     {
         if let Some(&ManagerType { id, name, .. }) = self.world().get_resource() {
@@ -63,7 +80,7 @@ impl AppExt for App {
                 name:      type_name::<M>(),
                 root_keys: HashSet::new(),
             });
-            self.insert_resource(manager::Instance { instance: M::default() });
+            self.insert_resource(manager::Instance { instance: init() });
         }
 
         let key = key.into();
@@ -77,12 +94,6 @@ impl AppExt for App {
             panic!("Cannot reuse config key {key:?} in the same app");
         }
 
-        let spawn_handle = C::spawn_world(
-            self.world_mut(),
-            SpawnContext { path: [key].into() },
-            &Default::default(),
-        );
-
         if self.world().get_resource::<RootField<C>>().is_some() {
             panic!(
                 "Cannot initialize multiple root config fields of the same type in the same app: \
@@ -90,6 +101,14 @@ impl AppExt for App {
                 type_name::<C>()
             );
         }
+
+        let spawn_handle = C::spawn_world(
+            self.world_mut(),
+            SpawnContext { path: [key].into(), parent: None },
+            Default::default(),
+        );
+
+        self.world_mut().entity_mut(spawn_handle.node()).insert(RootNode);
 
         self.insert_resource(RootField::<C> { spawn_handle });
 
@@ -99,7 +118,7 @@ impl AppExt for App {
 
 #[derive(SystemParam)]
 pub struct ReadConfig<'w, 's, C: ConfigField> {
-    query:      Query<'w, 's, <C as ConfigField>::ReadQueryData, With<ConfigData>>,
+    query:      Query<'w, 's, <C as ConfigField>::ReadQueryData>,
     root_field: Res<'w, RootField<C>>,
 }
 

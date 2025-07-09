@@ -5,12 +5,11 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::num::NonZeroU64;
-use core::{iter, ops};
 
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::query::QueryData;
-use bevy_ecs::world::World;
+use bevy_ecs::world::{EntityRef, EntityWorldMut, World};
 
 mod impls;
 mod query;
@@ -26,39 +25,10 @@ pub mod __import;
 mod app;
 pub use app::{AppExt, ReadConfig};
 
-/// Marks an entity as a config field node.
-#[derive(Component)]
-pub struct ConfigNode {
-    /// Context information passed to [`ConfigFieldFor::spawn_world`].
-    pub path:       Vec<String>,
-    /// The generation of a field, used for change detection.
-    pub generation: FieldGeneration,
-}
-
-/// Marks an entity as a root config node.
-#[derive(Component)]
-pub struct RootNode;
-
-/// Marks an entity as a child node of a config field.
-///
-/// This is a relationship component.
-#[derive(Component)]
-#[relationship(relationship_target = ChildNodeList)]
-pub struct ChildNodeOf(pub Entity);
-
-#[derive(Component)]
-#[relationship_target(relationship = ChildNodeOf)]
-pub struct ChildNodeList(Vec<Entity>);
-
-impl ops::Deref for ChildNodeList {
-    type Target = [Entity];
-
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-
-/// Marks an entity as a scalar config field.
-#[derive(Component)]
-pub struct ScalarField;
+mod tree;
+pub use tree::{
+    ChildNodeList, ChildNodeOf, ConditionalRelevance, ConfigNode, RootNode, ScalarField,
+};
 
 /// Tracks the number of changes to a config field.
 ///
@@ -83,19 +53,42 @@ pub struct SpawnContext {
     /// The hierarchical path from the root config field.
     ///
     /// Uniquely identifies the config field statically.
-    pub path:   Vec<String>,
+    pub path:       Vec<String>,
     /// The parent entity of the config field, if any.
-    pub parent: Option<Entity>,
+    pub parent:     Option<Entity>,
+    /// The [`ConditionalRelevance`] dependency of the config field, if any.
+    pub dependency: Option<ConditionalRelevance>,
 }
 
 impl SpawnContext {
     /// Appends a path component to this context.
     #[must_use]
-    pub fn join(&self, key: impl Into<String>, parent: Option<Entity>) -> Self {
+    pub fn join(
+        &self,
+        key: impl IntoIterator<Item = impl Into<String>>,
+        parent: Option<Entity>,
+    ) -> Self {
         SpawnContext {
-            path: self.path.iter().cloned().chain(iter::once(key.into())).collect(),
+            path: self
+                .path
+                .iter()
+                .cloned()
+                .chain(key.into_iter().map(Into::<String>::into))
+                .collect(),
             parent,
+            dependency: None,
         }
+    }
+
+    /// Adds a [`ConditionalRelevance`] dependency to this context.
+    #[must_use]
+    pub fn with_dependency(
+        mut self,
+        dependency: Entity,
+        is_entity_relevant: fn(EntityRef) -> bool,
+    ) -> Self {
+        self.dependency = Some(ConditionalRelevance { dependency, is_entity_relevant });
+        self
     }
 }
 
@@ -231,23 +224,28 @@ macro_rules! impl_scalar_config_field {
                 let manager_comps =
                     world.resource_mut::<$crate::manager::Instance<M>>().new_entity::<$ty>();
                 let mut entity = world.spawn((
-                        $crate::ConfigNode {
-                            path: ctx.path,
-                            generation: $crate::__import::Default::default(),
-                        },
                         $crate::ScalarData::<Self>($default_from_metadata(&metadata)),
                         $crate::ScalarMetadata::<Self>(metadata),
                         manager_comps,
                 ));
-                if let Some(parent) = ctx.parent {
-                    entity.insert($crate::ChildNodeOf(parent));
-                }
+                $crate::init_config_node(&mut entity, ctx);
                 entity.id()
             }
         }
     };
 }
 use impl_scalar_config_field as impl_scalar_config_field_;
+
+/// Initializes a newly spawned config node entity with the required components from the context.
+pub fn init_config_node(entity: &mut EntityWorldMut, ctx: SpawnContext) {
+    entity.insert(ConfigNode { path: ctx.path, generation: Default::default() });
+    if let Some(parent) = ctx.parent {
+        entity.insert(ChildNodeOf(parent));
+    }
+    if let Some(dependency) = ctx.dependency {
+        entity.insert(dependency);
+    }
+}
 
 /// Metadata type for [`ConfigField`] implementors derived from [`Config`].
 #[derive(Default, Clone)]

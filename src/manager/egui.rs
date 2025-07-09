@@ -12,8 +12,8 @@ use bevy_egui::{EguiContext, egui};
 
 use crate::manager::{self, Manager};
 use crate::{
-    ChildNodeList, ConfigField, ConfigNode, EnumDiscriminant, EnumDiscriminantWrapper, RootNode,
-    ScalarData, ScalarMetadata,
+    ChildNodeList, ConditionalRelevance, ConfigField, ConfigNode, EnumDiscriminant,
+    EnumDiscriminantWrapper, RootNode, ScalarData, ScalarMetadata,
 };
 
 /// A [`Manager`] providing an editor UI for config fields through [egui].
@@ -115,6 +115,22 @@ fn show_node<F: QueryFilter + 'static>(
     node_query: &mut Query<EntityMut, F>,
     id: Entity,
 ) {
+    {
+        let entity = node_query.get(id).expect("config node must remain in the world once spawned");
+        if let Some(&ConditionalRelevance { dependency, is_entity_relevant }) = entity.get() {
+            let dep = match node_query.get(dependency) {
+                Ok(dep) => dep,
+                Err(err) => {
+                    panic!("Config node {id:?} references invalid dependency {dependency:?}: {err}")
+                }
+            };
+            if !is_entity_relevant(dep) {
+                // If the dependency is not relevant, skip this node.
+                return;
+            }
+        }
+    }
+
     let mut entity =
         node_query.get_mut(id).expect("config node must remain in the world once spawned");
     if let Some(&ScalarDraw { draw_fn }) = entity.get() {

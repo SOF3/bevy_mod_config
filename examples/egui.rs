@@ -20,7 +20,8 @@ use bevy_sprite::{ColorMaterial, MeshMaterial2d};
 
 #[derive(Config)]
 struct Settings {
-    title:     String,
+    #[config(default = "Rect width = length of this field")]
+    text:      String,
     #[config(default = 10.)]
     thickness: f32,
     color:     ChooseColor,
@@ -165,7 +166,7 @@ fn init_line(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::new(100., 1.) }));
+    let mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::new(10., 1.) }));
     let material = materials
         .add(ColorMaterial { color: ChooseColorRead::White.to_color(), ..Default::default() });
     commands.spawn((
@@ -185,5 +186,6 @@ fn display_line(
 
     let (MeshMaterial2d(material_handle), ref mut shape_transform) = *shape;
     materials.get_mut(material_handle).unwrap().color = settings.color.to_color();
+    shape_transform.scale.x = settings.text.len() as f32;
     shape_transform.scale.y = settings.thickness;
 }

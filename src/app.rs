@@ -104,7 +104,7 @@ impl AppExt for App {
 
         let spawn_handle = C::spawn_world(
             self.world_mut(),
-            SpawnContext { path: [key].into(), parent: None },
+            SpawnContext { path: [key].into(), parent: None, dependency: None },
             Default::default(),
         );
 

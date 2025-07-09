@@ -397,14 +397,11 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
                     .resource_mut::<#crate_path::manager::Instance<__ConfigManager>>()
                     .new_entity::<#crate_path::EnumDiscriminantWrapper<#discrim_ident>>();
                 let mut __config_entity = __config_world.spawn((
-                    #crate_path::ConfigNode { path: __config_ctx.path, generation: #import::Default::default()  },
                     #crate_path::ScalarData(#crate_path::EnumDiscriminantWrapper(__config_metadata.default)),
                     #crate_path::ScalarMetadata::<Self>(__config_metadata),
                     __config_manager_comp,
                 ));
-                if let #import::Some(__config_parent_id) = __config_ctx.parent {
-                    __config_entity.insert(#crate_path::ChildNodeOf(__config_parent_id));
-                }
+                #crate_path::init_config_node(&mut __config_entity, __config_ctx);
                 __config_entity.id()
             }
         }
@@ -478,7 +475,19 @@ fn gen_impl_config_field(crate_path: &syn::Path, idents: &Idents, input: &Input)
 
 fn gen_spawn_world(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenStream {
     let spawn_handle_ident = &idents.spawn_handle_ident;
-    let spawn_fields = input.data.iter_field_data().map(|field| {
+    let field_iter = match &input.data {
+        InputData::Struct(struct_input) => {
+            Either::Left(struct_input.fields.iter().map(|field| (&field.data, false, None)))
+        }
+        InputData::Enum(enum_input) => {
+            Either::Right(iter::once((&enum_input.discrim, true, None)).chain(
+                enum_input.variants.iter().flat_map(|variant| {
+                    variant.fields.iter().map(|field| (&field.data, false, Some(variant.ident)))
+                }),
+            ))
+        }
+    };
+    let spawn_fields = field_iter.map(|(field, assign_discrim_entity, dependency_variant)| {
         let field_ident = &field.spawn_handle_field;
         let field_ty = &field.ty;
         let hierarchy_key = &field.hierarchy_key;
@@ -494,25 +503,43 @@ fn gen_spawn_world(crate_path: &syn::Path, idents: &Idents, input: &Input) -> To
             )*
             __config_metadata
         }};
+
+        let assign_discrim_entity = assign_discrim_entity.then(|| quote! {
+            __config_discrim_entity = __config_field_entity;
+        });
+        let with_dependency = dependency_variant.map(|variant| {
+            let discrim_ident = idents.discrim_ident().expect("Enum must have a discriminant type");
+            quote! {
+                .with_dependency(
+                    __config_discrim_entity,
+                    |entity| {
+                        entity.get::<#crate_path::ScalarData<#crate_path::EnumDiscriminantWrapper<#discrim_ident>>>()
+                            .expect("discriminant data must be present") // ScalarData<EnumDiscriminantWrapper<Discrim>>
+                            .0 // EnumDiscriminantWrapper<Discrim>
+                            .0 // Discrim
+                            == #discrim_ident::#variant
+                    }
+                )
+            }
+        });
+
         quote! {
-            #field_ident: <#field_ty as #crate_path::ConfigFieldFor<__ConfigManager>>::spawn_world(
-                __config_world,
-                __config_ctx.join(#hierarchy_key, #crate_path::__import::Some(__config_node)),
-                #metadata,
-            ),
+            #field_ident: {
+                let __config_field_entity = <#field_ty as #crate_path::ConfigFieldFor<__ConfigManager>>::spawn_world(
+                    __config_world,
+                    __config_ctx.join([#(#hierarchy_key),*], #crate_path::__import::Some(__config_node)) #with_dependency,
+                    #metadata,
+                );
+                #assign_discrim_entity
+                __config_field_entity
+            },
         }
     });
     quote! {
-        let mut __config_node_entity = __config_world.spawn((
-            #crate_path::ConfigNode {
-                path: __config_ctx.path.clone(),
-                generation: #crate_path::__import::Default::default(),
-            },
-        ));
-        if let #crate_path::__import::Some(__config_parent_id) = __config_ctx.parent {
-            __config_node_entity.insert(#crate_path::ChildNodeOf(__config_parent_id));
-        }
+        let mut __config_node_entity = __config_world.spawn_empty();
+        #crate_path::init_config_node(&mut __config_node_entity, __config_ctx.clone());
         let __config_node = __config_node_entity.id();
+        let __config_discrim_entity: #crate_path::__import::Entity;
         #spawn_handle_ident {
             node: __config_node,
             #(#spawn_fields)*
@@ -1134,7 +1161,7 @@ impl<'a> StructInput<'a> {
                     data: InputFieldData {
                         ty: &field.ty,
                         spawn_handle_field,
-                        hierarchy_key,
+                        hierarchy_key: [hierarchy_key].into(),
                         metadata,
                     },
                 })
@@ -1159,7 +1186,7 @@ impl<'a> EnumInput<'a> {
         let discrim = InputFieldData {
             ty:                 idents.discrim_ty.as_ref().unwrap(),
             spawn_handle_field: format_ident!("discrim"),
-            hierarchy_key:      "discrim".to_string(),
+            hierarchy_key:      ["discrim".to_string()].into(),
             metadata:           item_attrs.discrim_metadata.clone(),
         };
 
@@ -1183,8 +1210,12 @@ impl<'a> EnumInput<'a> {
                             ),
                         };
                         let hierarchy_key = match ident {
-                            InputFieldIdent::Index(index) => format!("{}:{}", variant.ident, index),
-                            InputFieldIdent::Ident(ident) => format!("{}:{}", variant.ident, ident),
+                            InputFieldIdent::Index(index) => {
+                                [variant.ident.to_string(), index.to_string()].into()
+                            }
+                            InputFieldIdent::Ident(ident) => {
+                                [variant.ident.to_string(), ident.to_string()].into()
+                            }
                         };
                         let metadata = metadata_from_attrs(&field.attrs)?;
                         Ok(InputField {
@@ -1305,6 +1336,6 @@ impl ToTokens for InputFieldIdent<'_> {
 struct InputFieldData<'a> {
     ty:                 &'a syn::Type,
     spawn_handle_field: syn::Ident,
-    hierarchy_key:      String,
+    hierarchy_key:      Vec<String>,
     metadata:           Vec<MetadataEntry>,
 }

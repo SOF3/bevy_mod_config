@@ -2,6 +2,10 @@
 name = "bevy_mod_config_macros"
 version = "0.1.0"
 edition = "2024"
+authors = ["SOFe <sofe2038@gmail.com>"]
+description = "Procedural macros for bevy_mod_config"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/SOF3/bevy_mod_config"
 
 [lib]
 proc-macro = true

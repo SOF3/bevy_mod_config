@@ -93,7 +93,7 @@ where
     ) -> egui::Response {
         let mut value_str = temp_data.take().unwrap_or_else(|| value.to_string());
         let edit = egui::TextEdit::singleline(&mut value_str).id_salt(id_salt);
-        let resp = ui.add(edit);
+        let mut resp = ui.add(edit);
         let parsed = value_str.parse::<Self>().ok();
         *temp_data = Some(value_str);
         if resp.changed()
@@ -109,12 +109,14 @@ where
                 {
                     *value = value.saturating_add_usize(presses);
                     *temp_data = Some(value.to_string());
+                    resp.mark_changed();
                 }
                 if let presses @ 1.. =
                     input.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
                 {
                     *value = value.saturating_sub_usize(presses);
                     *temp_data = Some(value.to_string());
+                    resp.mark_changed();
                 }
             });
         }

@@ -1,3 +1,5 @@
+//! Config editor using [egui].
+
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::hash::Hash;
@@ -6,7 +8,7 @@ use bevy_ecs::bundle::Bundle;
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::query::{QueryFilter, With, Without};
-use bevy_ecs::system::{Query, Res, SystemParam};
+use bevy_ecs::system::{Query, SystemParam};
 use bevy_ecs::world::EntityMut;
 use bevy_egui::{EguiContext, egui};
 
@@ -92,14 +94,42 @@ where
 #[derive(Component)]
 struct TempData<T>(Option<T>);
 
+/// A [`SystemParam`] to display config editor UI.
+///
+/// This system requires [full mutable access](EntityMut) to config entities.
+/// This may conflict with other queries in the same system.
+/// If the compiler suggests adding [`Without`] to a query,
+/// you can pass it as the `F` type parameter to this struct:
+///
+/// ```
+/// use bevy_ecs::error::Result;
+/// use bevy_ecs::hierarchy::Children;
+/// use bevy_ecs::query::Without;
+/// use bevy_ecs::system::Query;
+/// use bevy_egui::{EguiContexts, egui};
+/// use bevy_mod_config::manager::egui::Display;
+///
+/// pub fn config_editor_system(
+///     children_query: Query<&Children>,
+///     mut ctxs: EguiContexts,
+///     mut display: Display<Without<Children>>,
+/// ) -> Result {
+///     let ctx = ctxs.ctx_mut()?;
+///     egui::Window::new("Config Editor").show(ctx, |ui| {
+///         println!("We can still use children_query here: {:?}", children_query.iter().count());
+///         display.show(ui);
+///     });
+///     Ok(())
+/// }
+/// ```
 #[derive(SystemParam)]
-pub struct Display<'w, 's, M: Manager, F: QueryFilter + 'static = ()> {
-    _manager:   Res<'w, manager::Instance<M>>,
+pub struct Display<'w, 's, F: QueryFilter + 'static = ()> {
     node_query: Query<'w, 's, EntityMut<'static>, (Without<EguiContext>, F)>,
     root_query: Query<'w, 's, Entity, With<RootNode>>,
 }
 
-impl<M: Manager, F: QueryFilter + 'static> Display<'_, '_, M, F> {
+impl<F: QueryFilter + 'static> Display<'_, '_, F> {
+    /// Shows the config editor UI in `ui.
     pub fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
         ui.vertical(|ui| {
             for root in &self.root_query {
@@ -147,9 +177,29 @@ fn show_node<F: QueryFilter + 'static>(
     }
 }
 
+/// Implements the config editor UI for each scalar config field type.
+///
+/// Note: Since enum discriminants are [wrapped](EnumDiscriminantWrapper) in `ScalarData`,
+/// enum discriminants do not implement this trait directly.
+/// However, all other scalar config field types do implement this trait,
+/// and this is the intended way to extend [`Egui`] support for other types.
 pub trait Editable: ConfigField {
+    /// Temporary state used by the editor UI.
+    /// See [`Editable::show`] for more information.
     type TempData: Send + Sync + 'static;
 
+    /// Displays the editor UI for the scalar field in `ui`.
+    ///
+    /// `value` contains the current value of the field,
+    /// and may be modified by the editor if changed through this UI.
+    /// If the field is changed, the returned response must be
+    /// [marked as changed](egui::Response::mark_changed).
+    ///
+    /// `temp` stores temporary state about this UI component in the world,
+    /// and will be passed as-is in the next call to the same field.
+    ///
+    /// `id_salt` provides a unique hash for this field,
+    /// used for the `id_salt` function in many egui widgets.
     fn show(
         ui: &mut egui::Ui,
         value: &mut Self,
@@ -179,6 +229,20 @@ impl Editable for String {
         .char_limit(metadata.max_length.unwrap_or(usize::MAX))
         .id_salt(id_salt);
         ui.add(editor)
+    }
+}
+
+impl Editable for bool {
+    type TempData = ();
+
+    fn show(
+        ui: &mut egui::Ui,
+        value: &mut Self,
+        _: &Self::Metadata,
+        _: &mut Option<()>,
+        _: impl Hash,
+    ) -> egui::Response {
+        ui.add(egui::Checkbox::without_text(value))
     }
 }
 

@@ -1,3 +1,8 @@
+//! Support [serde]-based persistence for config fields.
+//!
+//! See [`Serde`] for more information.
+//! See the [`json`] module for convenience APIs for JSON ser/deserialization.
+
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::any::TypeId;
@@ -15,27 +20,48 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{ConfigNode, EnumDiscriminant, EnumDiscriminantWrapper, Manager, ScalarData, manager};
 
+/// Defines format-specific behavior for a [`Serde`] manager.
+///
+/// This trait is inherently not dyn-compatible;
+/// use multiple [`Serde`] managers with different adapters if multiple formats are needed.
 pub trait Adapter: Send + Sync + 'static {
+    /// Instantiated for each scalar type that appears in the world.
+    /// The implementation is typically a type-erased vtable
+    /// that calls the appropriate serialization and deserialization functions
+    /// given access to an entity.
     type Typed: for<'a> TypedAdapter<
             SerContext<'a> = <Self::SerInput<'a> as Serializer>::SerializeMap,
             SerError<'a> = <Self::SerInput<'a> as Serializer>::Error,
         >;
+    /// Instantiates a new [`TypedAdapter`] for the given scalar type.
     fn for_type<T: SerdeScalar>(&mut self) -> Self::Typed;
 
+    /// The serializer type.
     type SerInput<'a>: Serializer;
 
+    /// The deserializer type.
     type DeInput<'de>: Deserializer<'de>;
+    /// The key type used for keys in the deserialized map.
     type DeKey<'de>: fmt::Debug + Deserialize<'de>;
-    fn index_map_by_de_key<'de, 'map, V>(
+    /// Looks up the corresponding map entry upon deserializing a key.
+    fn index_map_by_de_key<'map, V>(
         &self,
         map: &'map HashMap<Vec<String>, V>,
-        key: Self::DeKey<'de>,
+        key: Self::DeKey<'_>,
     ) -> Option<&'map V>;
 }
 
+/// Stores the type-specific serialization and deserialization vtable.
 pub trait TypedAdapter: Send + Sync + 'static {
+    /// The [`SerializeMap`] for the serializer type.
     type SerContext<'a>: SerializeMap;
+    /// The error type for the supported serializer.
     type SerError<'a>;
+    /// Extracts the scalar data component of interest from the entity
+    /// and writes it as a map entry to `ser`.
+    ///
+    /// # Errors
+    /// Errors from the serializer.
     fn serialize_once<'a>(
         &self,
         entity: EntityRef,
@@ -43,6 +69,14 @@ pub trait TypedAdapter: Send + Sync + 'static {
         ser: &mut Self::SerContext<'a>,
     ) -> Result<(), Self::SerError<'a>>;
 
+    /// Deserializes the value of the type of interest from a map
+    /// and writes it to the entity.
+    ///
+    /// # Errors
+    /// Errors from the deserializer.
+    ///
+    /// In the current implementation, the error type may be incorrectly wrapped with
+    /// `Error::custom` of another deserializer type due to intermediate conversions.
     fn deserialize_map_value<'de, M: MapAccess<'de>>(
         &self,
         entity: EntityWorldMut,
@@ -70,6 +104,7 @@ impl<A: Adapter + Default> Default for Serde<A> {
 }
 
 impl<A: Adapter> Serde<A> {
+    /// Creates a new [`Serde`] manager with the given adapter.
     pub fn new_with_adapter(adapter: A) -> Self { Serde { adapter, types: HashMap::new() } }
 
     fn keys_with_types(&self, world: &mut World) -> Vec<(ScannedKey, &Typed<A::Typed>)> {
@@ -88,6 +123,12 @@ impl<A: Adapter> Serde<A> {
         keys_with_types
     }
 
+    /// Serializes all config data in the world to a map.
+    ///
+    /// See adapter-dependent impls for more ergonomic APIs.
+    ///
+    /// # Errors
+    /// Errors from the serializer.
     pub fn serialize_all<'a>(
         &self,
         world: &mut World,
@@ -103,6 +144,12 @@ impl<A: Adapter> Serde<A> {
         map_ser.end()
     }
 
+    /// Deserializes config data from a map and writes them to the config entities in the world.
+    ///
+    /// See adapter-dependent impls for more ergonomic APIs.
+    ///
+    /// # Errors
+    /// Errors from the deserializer.
     pub fn deserialize<'de>(
         &self,
         world: &mut World,
@@ -167,6 +214,7 @@ where
     }
 }
 
+/// JSON support through [`serde_json`].
 #[cfg(feature = "serde_json")]
 pub mod json {
     extern crate std;
@@ -185,10 +233,14 @@ pub mod json {
 
     use crate::ScalarData;
 
+    /// A manager that serializes config data to and from [compact](CompactFormatter) JSON.
     pub type Json = super::Serde<JsonAdapter<CompactFormatter>>;
+    /// A manager that serializes config data to and from [pretty](PrettyFormatter) JSON.
     pub type Pretty = super::Serde<JsonAdapter<PrettyFormatter<'static>>>;
 
+    /// A serde adapter for `serde_json` serializer and deserializer.
     pub struct JsonAdapter<F> {
+        /// Builds formatters to pass into `serde_json`.
         pub formatter: Box<dyn FormatterBuilder<F>>,
     }
 
@@ -196,6 +248,7 @@ pub mod json {
         // This can be removed when `CompactFormatter` implements `Default`.
         //
         // See <https://github.com/serde-rs/json/pull/1268>.
+        /// Creates a new compact JSON manager.
         pub fn new() -> Self {
             Self::new_with_adapter(JsonAdapter { formatter: Box::new(|| CompactFormatter) })
         }
@@ -209,8 +262,12 @@ pub mod json {
         fn clone(&self) -> Self { JsonAdapter { formatter: self.formatter.clone() } }
     }
 
+    /// A dyn-compatible, clonable trait for constructing a `serde_json` formatter.
     pub trait FormatterBuilder<F>: Send + Sync + 'static {
+        /// Clones the formatter builder to a new box.
         fn clone(&self) -> Box<dyn FormatterBuilder<F>>;
+
+        /// Constructs a new formatter.
         fn call(&self) -> F;
     }
 
@@ -225,15 +282,18 @@ pub mod json {
         fn call(&self) -> F { self() }
     }
 
+    /// Dyn-compatible trait for [`io::Write`] and [`Any`].
     pub trait AnyWrite: io::Write + Any {}
     impl<T: io::Write + Any> AnyWrite for T {}
 
+    /// Dyn-compatible trait for [`io::Read`] and [`Any`].
     pub trait AnyRead: io::Read + Any {}
     impl<T: io::Read + Any> AnyRead for T {}
 
     type Writer = BufWriter<Box<dyn AnyWrite>>;
     type Reader = serde_json::de::IoRead<BufReader<Box<dyn AnyRead>>>;
 
+    /// The typed adapter for [`JsonAdapter`].
     #[derive(Clone)]
     pub struct TypedVtable<F: Formatter> {
         #[expect(
@@ -353,10 +413,16 @@ pub mod json {
 #[cfg(feature = "serde_json")]
 pub use json::Json;
 
+/// Generalizes all `Serialize + DeserializeOwned` types, as well as enum discriminants.
 pub trait SerdeScalar: Send + Sync + 'static {
+    /// Expresses the scalar as a serializable type.
+    ///
+    /// [`Serde`] uses this value to serialize the scalar data into its output.
     fn as_serialize(&self) -> &(impl Serialize + ?Sized);
 
+    /// [`Serde`] deserializes loaded data into this type.
     type Deserialize: DeserializeOwned;
+    /// Sets the field value to the value deserialized from loaded data.
     fn set_deserialized(&mut self, value: Self::Deserialize);
 }
 
@@ -387,7 +453,7 @@ const _: () = {
         {
             struct Visitor<T>(PhantomData<T>);
 
-            impl<'de, T: EnumDiscriminant> serde::de::Visitor<'de> for Visitor<T> {
+            impl<T: EnumDiscriminant> serde::de::Visitor<'_> for Visitor<T> {
                 type Value = T;
 
                 fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {

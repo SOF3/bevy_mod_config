@@ -6,10 +6,25 @@ use bevy_ecs::resource::Resource;
 use bevy_ecs::system::{Query, Res, SystemParam};
 use hashbrown::HashSet;
 
-use crate::{ConfigField, ConfigFieldFor, Manager, RootNode, SpawnContext, SpawnHandle, manager};
+use crate::{
+    ConfigField, ConfigFieldFor, ConfigNode, Manager, RootNode, SpawnContext, SpawnHandle, manager,
+};
 
 /// Extension trait for [App] to initialize config systems.
 pub trait AppExt {
+    /// Initializes a root config type `C` in the app
+    /// using the default manager constructor.
+    ///
+    /// See [`App::init_config_with`] for more information.
+    fn init_config<M, C>(&mut self, key: impl Into<String>) -> &mut Self
+    where
+        M: Manager + Default,
+        C: ConfigFieldFor<M>,
+        C::Metadata: Default,
+    {
+        self.init_config_with::<M, C>(key, M::default)
+    }
+
     /// Initializes a root config type `C` in the app.
     ///
     /// This method may be called multiple times on the same app
@@ -23,15 +38,6 @@ pub trait AppExt {
     ///
     /// To ensure the same manager type is used across your game,
     /// it is recommended to reuse a type alias for the desired manager type.
-    fn init_config<M, C>(&mut self, key: impl Into<String>) -> &mut Self
-    where
-        M: Manager + Default,
-        C: ConfigFieldFor<M>,
-        C::Metadata: Default,
-    {
-        self.init_config_with::<M, C>(key, M::default)
-    }
-
     fn init_config_with<M, C>(
         &mut self,
         key: impl Into<String>,
@@ -67,13 +73,12 @@ impl AppExt for App {
         C::Metadata: Default,
     {
         if let Some(&ManagerType { id, name, .. }) = self.world().get_resource() {
-            if id != TypeId::of::<M>() {
-                panic!(
-                    "Use of multiple different config managers in the same app is not allowed: \
-                     {name} vs {}",
-                    type_name::<M>()
-                );
-            }
+            assert!(
+                id == TypeId::of::<M>(),
+                "Use of multiple different config managers in the same app is not allowed: {name} \
+                 vs {}",
+                type_name::<M>()
+            );
         } else {
             self.insert_resource(ManagerType {
                 id:        TypeId::of::<M>(),
@@ -94,13 +99,11 @@ impl AppExt for App {
             panic!("Cannot reuse config key {key:?} in the same app");
         }
 
-        if self.world().get_resource::<RootField<C>>().is_some() {
-            panic!(
-                "Cannot initialize multiple root config fields of the same type in the same app: \
-                 {}",
-                type_name::<C>()
-            );
-        }
+        assert!(
+            self.world().get_resource::<RootField<C>>().is_none(),
+            "Cannot initialize multiple root config fields of the same type in the same app: {}",
+            type_name::<C>()
+        );
 
         let spawn_handle = C::spawn_world(
             self.world_mut(),
@@ -109,22 +112,33 @@ impl AppExt for App {
         );
 
         self.world_mut().entity_mut(spawn_handle.node()).insert(RootNode);
-
         self.insert_resource(RootField::<C> { spawn_handle });
 
         self
     }
 }
 
+/// Access to a tree of config fields from a root config type `C`
+/// that was passed into [`App::init_config`].
 #[derive(SystemParam)]
 pub struct ReadConfig<'w, 's, C: ConfigField> {
-    query:      Query<'w, 's, <C as ConfigField>::ReadQueryData>,
-    root_field: Res<'w, RootField<C>>,
+    read_query:    Query<'w, 's, <C as ConfigField>::ReadQueryData>,
+    changed_query: Query<'w, 's, (&'static ConfigNode, <C as ConfigField>::ChangedQueryData)>,
+    root_field:    Res<'w, RootField<C>>,
 }
 
 impl<C: ConfigField> ReadConfig<'_, '_, C> {
     /// Reads the config field from the world.
+    #[must_use]
     pub fn read(&self) -> C::Reader<'_> {
-        C::read_world(&self.query, &self.root_field.spawn_handle)
+        C::read_world(&self.read_query, &self.root_field.spawn_handle)
+    }
+
+    /// Returns a value that changes when the config field is modified.
+    ///
+    /// See [`ConfigField::Changed`] for details.
+    #[must_use]
+    pub fn changed(&self) -> C::Changed {
+        C::changed(&self.changed_query, &self.root_field.spawn_handle)
     }
 }

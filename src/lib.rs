@@ -1,4 +1,5 @@
 #![no_std]
+#![warn(missing_docs, clippy::pedantic)]
 
 extern crate alloc;
 
@@ -12,10 +13,11 @@ use bevy_ecs::query::QueryData;
 use bevy_ecs::world::{EntityRef, EntityWorldMut, World};
 
 mod impls;
+pub use impls::BareField;
 mod query;
 pub use query::QueryLike;
 mod enum_;
-pub use enum_::{EnumDiscriminant, EnumDiscriminantWrapper};
+pub use enum_::{EnumDiscriminant, EnumDiscriminantMetadata, EnumDiscriminantWrapper};
 pub mod manager;
 pub use bevy_mod_config_macros::Config;
 pub use manager::Manager;
@@ -42,6 +44,10 @@ impl Default for FieldGeneration {
 
 impl FieldGeneration {
     /// Increments the generation by one.
+    ///
+    /// # Panics
+    /// Panics if the generation overflows.
+    #[must_use]
     pub fn next(self) -> Self {
         FieldGeneration(self.0.checked_add(1).expect("field generation overflow"))
     }
@@ -108,7 +114,12 @@ pub trait ConfigField: 'static {
     type SpawnHandle: SpawnHandle + 'static + Send + Sync;
 
     /// The type returned when reading the config data from the world.
+    ///
+    /// `'a` is the lifetime of the receiver in [`ReadConfig::read`].
     type Reader<'a>;
+    /// The minimal components required to read the typed config fields under this field.
+    ///
+    /// For scalar fields, this is always `Option<&ScalarData<Self>>`.
     type ReadQueryData: QueryData;
 
     /// Type-specific metadata specified by the referrer.
@@ -122,6 +133,11 @@ pub trait ConfigField: 'static {
     /// - It can be compared for [equality](Eq) with the previous value
     ///   to determine whether the config data has changed.
     type Changed: Clone + Eq + 'static + Send + Sync;
+    /// The minimal components required to compute whether the config data has changed.
+    ///
+    /// This is `()` for most types,
+    /// but may contain enum discriminants for enum fields
+    /// to determine which variant should be compared.
     type ChangedQueryData: QueryData;
 
     /// Reads config data for user consumption from a query of config data entities.
@@ -177,17 +193,32 @@ pub trait ConfigFieldFor<M>: ConfigField {
 #[derive(Component)]
 pub struct ScalarData<T>(pub T);
 
+/// Stores the metadata of a scalar config field.
 #[derive(Component)]
 pub struct ScalarMetadata<T: ConfigField>(pub T::Metadata);
 
 /// Implements [`ConfigField`] for a scalar (non-composite) type.
+///
+/// - `$ty`: the scalar type to implement [`ConfigField`] for.
+///   This is the actual owned value to be persisted in the world.
+///   Managers will see this type as a component [`ScalarData<$ty>`].
+/// - `$metadata`: the metadata type for the scalar field.
+/// - `$default_from_metadata`: a function to produce a default value of `$ty` from metadata.
+///   Must implement `Fn($metadata) -> $ty`.
+/// - `$lt`: an arbitrary lifetime parameter that may be used in `$mapped_ty`.
+///   Just put an arbitrary lifetime parameter here, such as `'a`,
+///   even if `$mapped_ty` does not use it.
+/// - `$mapped_ty`: the type returned by [`ConfigField::read_world`].
+///   This is the most user-friendly type used in readers,
+///   e.g. `&str` for `String`, or the owned value for [`Copy`] types.
+/// - `$map_fn`: a function that maps the scalar data to `$mapped_ty`.
 #[macro_export]
 macro_rules! impl_scalar_config_field {
     ($ty:ty, $metadata:ty, $default_from_metadata:expr, $lt:lifetime => $mapped_ty:ty, $map_fn:expr $(,)?) => {
         impl $crate::ConfigField for $ty {
             type SpawnHandle = $crate::__import::Entity;
             type Reader<$lt> = $mapped_ty;
-            type ReadQueryData = Option<&'static $crate::ScalarData<Self>>;
+            type ReadQueryData = $crate::__import::Option<&'static $crate::ScalarData<Self>>;
             type Metadata = $metadata;
             type Changed = $crate::FieldGeneration;
             type ChangedQueryData = ();
@@ -238,7 +269,7 @@ use impl_scalar_config_field as impl_scalar_config_field_;
 
 /// Initializes a newly spawned config node entity with the required components from the context.
 pub fn init_config_node(entity: &mut EntityWorldMut, ctx: SpawnContext) {
-    entity.insert(ConfigNode { path: ctx.path, generation: Default::default() });
+    entity.insert(ConfigNode { path: ctx.path, generation: FieldGeneration::default() });
     if let Some(parent) = ctx.parent {
         entity.insert(ChildNodeOf(parent));
     }

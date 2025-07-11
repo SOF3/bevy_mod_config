@@ -29,6 +29,9 @@ pub struct RootNode;
 #[relationship(relationship_target = ChildNodeList)]
 pub struct ChildNodeOf(pub Entity);
 
+/// Lists the child nodes of a config field node.
+///
+/// This can be used by managers to handle config fields hierarchically.
 #[derive(Component)]
 #[relationship_target(relationship = ChildNodeOf)]
 pub struct ChildNodeList(Vec<Entity>);

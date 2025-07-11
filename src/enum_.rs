@@ -21,3 +21,12 @@ pub trait EnumDiscriminant: ConfigField + Eq + Sized + Copy + Send + Sync + 'sta
 /// A [`ConfigField`] implementation that wraps an [`EnumDiscriminant`] implementor.
 #[derive(PartialEq)]
 pub struct EnumDiscriminantWrapper<T>(pub T);
+
+/// [Metadata](ConfigField::Metadata) type for enum discriminants.
+#[derive(Default, Clone)]
+pub struct EnumDiscriminantMetadata<T> {
+    /// The default variant.
+    pub default:     T,
+    /// Display as a step slider instead of a combo box.
+    pub step_slider: bool,
+}

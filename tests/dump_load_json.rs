@@ -62,21 +62,21 @@ fn dump_json(app: &mut bevy_app::App) {
     let data = json.to_string(app.world_mut()).unwrap();
     assert_eq!(
         data,
-        r#"{"ui.color.Named:code":"","ui.color.Rgb:0":0.0,"ui.color.Rgb:1":0.0,"ui.color.Rgb:2":0.0,"ui.color.Rgba:0.0":0.0,"ui.color.Rgba:0.1":0.0,"ui.color.Rgba:0.2":0.0,"ui.color.Rgba:0.3":0.0,"ui.color.discrim":"White","ui.thickness":3}"#
+        r#"{"ui.color.Named.code":"","ui.color.Rgb.0":0.0,"ui.color.Rgb.1":0.0,"ui.color.Rgb.2":0.0,"ui.color.Rgba.0.0":0.0,"ui.color.Rgba.0.1":0.0,"ui.color.Rgba.0.2":0.0,"ui.color.Rgba.0.3":0.0,"ui.color.discrim":"White","ui.thickness":3}"#
     );
 
     let data = pretty_json.to_string(app.world_mut()).unwrap();
     assert_eq!(
         data,
         r#"{
-  "ui.color.Named:code": "",
-  "ui.color.Rgb:0": 0.0,
-  "ui.color.Rgb:1": 0.0,
-  "ui.color.Rgb:2": 0.0,
-  "ui.color.Rgba:0.0": 0.0,
-  "ui.color.Rgba:0.1": 0.0,
-  "ui.color.Rgba:0.2": 0.0,
-  "ui.color.Rgba:0.3": 0.0,
+  "ui.color.Named.code": "",
+  "ui.color.Rgb.0": 0.0,
+  "ui.color.Rgb.1": 0.0,
+  "ui.color.Rgb.2": 0.0,
+  "ui.color.Rgba.0.0": 0.0,
+  "ui.color.Rgba.0.1": 0.0,
+  "ui.color.Rgba.0.2": 0.0,
+  "ui.color.Rgba.0.3": 0.0,
   "ui.color.discrim": "White",
   "ui.thickness": 3
 }"#
@@ -93,7 +93,7 @@ fn load_json(app: &mut bevy_app::App) {
         r#"{
         "ui.thickness": 5,
         "ui.color.discrim": "Named",
-        "ui.color.Named:code": "red"
+        "ui.color.Named.code": "red"
     }"#,
     );
 

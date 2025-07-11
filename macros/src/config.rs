@@ -287,7 +287,6 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
     };
     let discrim_ident = idents.discrim_ident().expect("Enum must have a discriminant type");
     let variant_names = enum_input.variants.iter().map(|variant| variant.ident);
-    let metadata_ident = format_ident!("{}Metadata", discrim_ident);
 
     let default_variant_name =
         enum_input.variants.first().expect("checked during Input::new").ident;
@@ -327,6 +326,12 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
         )]
         #vis enum #discrim_ident { #(#variant_names,)* }
 
+        impl #crate_path::__import::Default for #discrim_ident {
+            fn default() -> Self {
+                #discrim_ident::#default_variant_name
+            }
+        }
+
         impl #crate_path::EnumDiscriminant for #discrim_ident {
             const VARIANTS: &'static [Self] = &[#(#variants_const),*];
 
@@ -354,7 +359,7 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
             type SpawnHandle = #import::Entity;
             type Reader<'a> = #discrim_ident;
             type ReadQueryData = Option<&'static #crate_path::ScalarData<#crate_path::EnumDiscriminantWrapper<#discrim_ident>>>;
-            type Metadata = #metadata_ident;
+            type Metadata = #crate_path::EnumDiscriminantMetadata<#discrim_ident>;
             type Changed = #crate_path::FieldGeneration;
             type ChangedQueryData = ();
 
@@ -403,16 +408,6 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
                 ));
                 #crate_path::init_config_node(&mut __config_entity, __config_ctx);
                 __config_entity.id()
-            }
-        }
-
-        struct #metadata_ident {
-            pub default: #discrim_ident,
-        }
-
-        impl #import::Default for #metadata_ident {
-            fn default() -> Self {
-                Self { default: #discrim_ident::#default_variant_name }
             }
         }
     }
@@ -715,39 +710,59 @@ fn gen_changed_fn_enum(
             .expect(
                 "entity managed by config field must remain active as long as the config handle is used"
             ) // (&ConfigNode, Self::ChangedQueryData)
-            .1 // Self::ChangedQueryData = (&ScalarData<Discrim>, ..)
-            .0 // &ScalarData<Discrim>
+            .1 // Self::ChangedQueryData = (Option<&ScalarData<Wrapper<Discrim>>>, ..)
+            .0 // Option<&ScalarData<Wrapper<Discrim>>>
+            .expect("enum discriminant field must have enum discriminant data") // &ScalarData<Wrapper<Discrim>>
+            .0 // Wrapper<Discrim>
             .0 // Discrim
     )};
     let mut field_changed_query_data: Vec<_> = [quote! {
-        &'static #crate_path::ScalarData<#discrim_ident>
+        #crate_path::__import::Option<&'static #crate_path::ScalarData<#crate_path::EnumDiscriminantWrapper<#discrim_ident>>>
     }]
     .into();
 
     let changed_ident = &idents.changed_ident;
-    let changed_variants = input.variants.iter().map(|variant| {
-        let variant_ident = &variant.ident;
-        let variant_fields = variant.fields.iter().map(|field| {
-            let field_ident = &field.ident;
-            let field_ty = &field.data.ty;
-            let spawn_handle_ident = &field.data.spawn_handle_field;
-            let data_tuple_index = syn::Index { index: field_changed_query_data.len() as u32, span: field.span };
-            field_changed_query_data.push(quote!(<#field_ty as #crate_path::ConfigField>::ChangedQueryData));
+    let changed_variants = input
+        .variants
+        .iter()
+        .map(|variant| {
+            let variant_ident = &variant.ident;
+            let variant_fields = variant
+                .fields
+                .iter()
+                .map(|field| {
+                    let field_ident = &field.ident;
+                    let field_ty = &field.data.ty;
+                    let spawn_handle_ident = &field.data.spawn_handle_field;
+                    let data_tuple_index = syn::Index {
+                        index: field_changed_query_data.len() as u32,
+                        span:  field.span,
+                    };
+                    field_changed_query_data
+                        .push(quote!(<#field_ty as #crate_path::ConfigField>::ChangedQueryData));
+
+                    quote! {
+                        #field_ident: <#field_ty as #crate_path::ConfigField>::changed(
+                            #crate_path::QueryLike::map(
+                                __config_query,
+                                |__config_data_item| (
+                                    __config_data_item.0,
+                                    __config_data_item.1.#data_tuple_index,
+                                ),
+                            ),
+                            &__config_spawn_handle.#spawn_handle_ident,
+                        ),
+                    }
+                })
+                .collect::<Vec<_>>();
 
             quote! {
-                #field_ident: <#field_ty as #crate_path::ConfigField>::changed(
-                    #crate_path::QueryLike::map(__config_query, |__config_data_item| (__config_data_item.0, __config_data_item.1.#data_tuple_index)),
-                    &__config_spawn_handle.#spawn_handle_ident,
-                ),
+                #discrim_ident::#variant_ident => #changed_ident::#variant_ident {
+                    #(#variant_fields)*
+                },
             }
-        }).collect::<Vec<_>>();
-
-        quote! {
-            #discrim_ident::#variant_ident => #changed_ident::#variant_ident {
-                #(#variant_fields)*
-            },
-        }
-    }).collect::<Vec<_>>();
+        })
+        .collect::<Vec<_>>();
 
     (
         quote! {
@@ -1046,15 +1061,14 @@ impl Idents {
             .clone()
             .unwrap_or_else(|| format_ident!("{input_ident}Changed"));
         let discrim_ty = match &input.data {
-            syn::Data::Enum(_) => Some(syn::Type::Path(syn::TypePath {
-                qself: None,
-                path:  item_attrs
+            syn::Data::Enum(_) => Some({
+                let discrim_ident = item_attrs
                     .expose_discrim
                     .ident
                     .clone()
-                    .unwrap_or_else(|| format_ident!("{input_ident}Discrim"))
-                    .into(),
-            })),
+                    .unwrap_or_else(|| format_ident!("{input_ident}Discrim"));
+                syn::Type::Path(syn::TypePath { qself: None, path: discrim_ident.into() })
+            }),
             _ => None,
         };
 

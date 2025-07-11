@@ -1,6 +1,9 @@
 use alloc::string::String;
 
+use bevy_ecs::entity::Entity;
+
 use super::impl_scalar_config_field_ as impl_scalar_config_field;
+use crate::{ConfigField, ConfigNode, FieldGeneration, QueryLike, ScalarData};
 
 macro_rules! impl_numeric_config_field {
     ($($ty:ty,)*) => {
@@ -43,6 +46,19 @@ pub struct StringMetadata {
     pub multiline:  bool,
 }
 
+impl_scalar_config_field!(
+    bool,
+    BoolMetadata,
+    |metadata: &BoolMetadata| metadata.default,
+    'a => bool,
+    |&b: &bool| b,
+);
+
+#[derive(Default, Clone)]
+pub struct BoolMetadata {
+    pub default: bool,
+}
+
 #[cfg(feature = "bevy_color")]
 impl_scalar_config_field!(
     bevy_color::Color,
@@ -59,3 +75,45 @@ pub struct ColorMetadata {
     pub alpha_blend:    bool,
     pub alpha_additive: bool,
 }
+
+/// A [`ConfigField`] wrapper implementation with no metadata.
+///
+/// Used to implement on foreign types that do not implement [`ConfigField`] directly.
+pub struct BareField<T>(pub T);
+
+impl<T> ConfigField for BareField<T>
+where
+    T: Clone + Send + Sync + 'static,
+{
+    type SpawnHandle = Entity;
+    type Reader<'a> = &'a T;
+    type ReadQueryData = Option<&'static ScalarData<Self>>;
+    type Metadata = BareMetadata;
+    type Changed = FieldGeneration;
+    type ChangedQueryData = ();
+
+    fn read_world<'a>(
+        query: impl QueryLike<Item = Option<&'a ScalarData<Self>>>,
+        &spawn_handle: &Entity,
+    ) -> Self::Reader<'a> {
+        let data = query.get(spawn_handle).expect(
+            "entity managed by config field must remain active as long as the config handle is \
+             used",
+        );
+        &data.as_ref().expect("scalar data component must remain valid with Self type").0.0
+    }
+
+    fn changed<'a>(
+        query: impl QueryLike<Item = (&'a ConfigNode, ())>,
+        &spawn_handle: &Entity,
+    ) -> Self::Changed {
+        let entity = query.get(spawn_handle).expect(
+            "entity managed by config field must remain active as long as the config handle is \
+             used",
+        );
+        entity.0.generation
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct BareMetadata {}

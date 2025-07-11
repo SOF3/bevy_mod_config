@@ -935,7 +935,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_mod_config"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bevy",
  "bevy_app",
@@ -955,7 +955,7 @@ dependencies = [
 
 [[package]]
 name = "bevy_mod_config_macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "either",
  "proc-macro2",

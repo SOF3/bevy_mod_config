@@ -1,3 +1,7 @@
+//! Utilities for config management.
+//!
+//! See [`Manager`] for more information.
+
 use core::ops::{Deref, DerefMut};
 
 use bevy_ecs::bundle::Bundle;
@@ -13,12 +17,20 @@ pub mod serde;
 #[cfg(feature = "serde")]
 pub use serde::Serde;
 
-/// Manages config fields.
+/// Stateful hooks attached to config fields.
 ///
 /// A manager is invoked when a scalar config field is spawned in the world,
 /// allowing it to attach behavior to the entity.
+///
+/// Tuples of managers are also managers;
+/// each manager would be invoked in order when a new field entity is spawned.
+/// This allows using multiple managers in the same app.
 pub trait Manager: Sized + Send + Sync + 'static {
     /// Returns a component bundle that tracks entity management.
+    ///
+    /// This is particulraly useful for attaching vtable pointers to a component
+    /// so that the manager can later traverse the config tree
+    /// without knowing the type of each field at compile time.
     fn new_entity<T>(&mut self) -> impl Bundle
     where
         Self: Supports<T>,
@@ -33,8 +45,12 @@ pub trait Supports<T>: Manager {
     fn new_entity_for_type(&mut self) -> impl Bundle;
 }
 
+/// Stores the manager instances from the world.
+///
+/// `M` must be the exact manager type passed into [`init_config`](crate::AppExt::init_config).
 #[derive(Resource)]
 pub struct Instance<M: Manager> {
+    /// The manager instance.
     pub instance: M,
 }
 

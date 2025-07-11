@@ -1,9 +1,10 @@
 use std::io::Cursor;
+use std::time::Duration;
 
 use bevy::asset::Assets;
 use bevy::core_pipeline::core_2d::Camera2d;
 use bevy::math::primitives::Rectangle;
-use bevy::math::{Vec2, Vec3};
+use bevy::math::{Quat, Vec2, Vec3};
 use bevy::render::mesh::{Mesh, Mesh2d};
 use bevy::transform::components::Transform;
 use bevy_app::AppExit;
@@ -12,18 +13,21 @@ use bevy_ecs::component::Component;
 use bevy_ecs::query::With;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::schedule::IntoScheduleConfigs;
-use bevy_ecs::system::{Command, Commands, ResMut, Single};
+use bevy_ecs::system::{Command, Commands, Local, Res, ResMut, Single};
 use bevy_ecs::world::World;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use bevy_mod_config::{AppExt, Config, ReadConfig, manager};
 use bevy_sprite::{ColorMaterial, MeshMaterial2d};
+use bevy_time::Time;
 
 #[derive(Config)]
+#[config(expose(changed))]
 struct Settings {
     #[config(default = "Rect width = length of this field")]
     text:      String,
     #[config(default = 10.)]
     thickness: f32,
+    rotate:    bool,
     color:     ChooseColor,
 }
 
@@ -78,7 +82,7 @@ fn main() -> AppExit {
     app.run()
 }
 
-fn show_settings(mut contexts: EguiContexts, mut display: manager::egui::Display<ManagerType>) {
+fn show_settings(mut contexts: EguiContexts, mut display: manager::egui::Display) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
 
     egui::SidePanel::left("settings").show(ctx, |ui| {
@@ -181,11 +185,31 @@ fn display_line(
     settings: ReadConfig<Settings>,
     mut shape: Single<(&MeshMaterial2d<ColorMaterial>, &mut Transform), With<MainShape>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut last_changed: Local<Option<(Duration, SettingsChanged)>>,
+    time: Res<Time>,
 ) {
+    let last_change_time = match *last_changed {
+        None => {
+            *last_changed = Some((time.elapsed(), settings.changed()));
+            time.elapsed()
+        }
+        Some((last_change_time, ref last_changed_value)) => {
+            if *last_changed_value != settings.changed() {
+                *last_changed = Some((time.elapsed(), settings.changed()));
+                time.elapsed()
+            } else {
+                last_change_time
+            }
+        }
+    };
+    let time_since_change = (time.elapsed() - last_change_time).as_secs_f32();
+
     let settings = settings.read();
 
     let (MeshMaterial2d(material_handle), ref mut shape_transform) = *shape;
     materials.get_mut(material_handle).unwrap().color = settings.color.to_color();
     shape_transform.scale.x = settings.text.len() as f32;
     shape_transform.scale.y = settings.thickness;
+    shape_transform.rotation =
+        Quat::from_rotation_z(time_since_change * if settings.rotate { 1.0 } else { 0.0 });
 }

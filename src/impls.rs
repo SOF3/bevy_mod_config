@@ -1,3 +1,6 @@
+// Contains implementations of `ConfigField` for various scalar types.
+//! Exports the [metadata](crate::ConfigField::Metadata) structs for foreign scalar types.
+
 use alloc::string::String;
 
 use bevy_ecs::entity::Entity;
@@ -23,11 +26,15 @@ impl_numeric_config_field!(
     i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize, f32, f64,
 );
 
+/// Metadata for numeric scalar config fields.
 #[derive(Default, Clone)]
 pub struct NumericMetadata<T> {
-    pub min:     Option<T>,
-    pub max:     Option<T>,
+    /// The default value.
     pub default: T,
+    /// The minimum possible value.
+    pub min:     Option<T>,
+    /// The maximum possible value.
+    pub max:     Option<T>,
 }
 
 impl_scalar_config_field!(
@@ -38,11 +45,17 @@ impl_scalar_config_field!(
     String::as_str,
 );
 
+/// Metadata for [`String`] fields.
 #[derive(Default, Clone)]
 pub struct StringMetadata {
+    /// The default value.
     pub default:    &'static str,
-    pub min_length: Option<usize>,
+    /// The maximum length of the string.
     pub max_length: Option<usize>,
+    /// Whether the string can span multiple lines.
+    ///
+    /// This affects the UI representation of the field,
+    /// allowing it to be rendered as a multiline text input.
     pub multiline:  bool,
 }
 
@@ -54,8 +67,10 @@ impl_scalar_config_field!(
     |&b: &bool| b,
 );
 
+/// Metadata for [`bool`] fields.
 #[derive(Default, Clone)]
 pub struct BoolMetadata {
+    /// The default value.
     pub default: bool,
 }
 
@@ -68,11 +83,15 @@ impl_scalar_config_field!(
     |&value: &bevy_color::Color| value,
 );
 
+/// Metadata for [`bevy_color::Color`] fields.
 #[cfg(feature = "bevy_color")]
 #[derive(Default, Clone)]
 pub struct ColorMetadata {
+    /// The default value.
     pub default:        bevy_color::Color,
+    /// Show blend options for alpha.
     pub alpha_blend:    bool,
+    /// Show additive alpha blending option.
     pub alpha_additive: bool,
 }
 
@@ -115,5 +134,6 @@ where
     }
 }
 
+/// Dummy metadata type for [`BareField`].
 #[derive(Default, Clone)]
 pub struct BareMetadata {}

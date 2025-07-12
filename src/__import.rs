@@ -3,6 +3,7 @@
 
 pub use core::clone::Clone;
 pub use core::cmp::{Eq, PartialEq};
+pub use core::convert::Into;
 pub use core::default::Default;
 pub use core::fmt::Debug;
 pub use core::marker::{Copy, Send, Sync};

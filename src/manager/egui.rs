@@ -2,13 +2,14 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::any::type_name;
 use core::hash::Hash;
 
 use bevy_ecs::bundle::Bundle;
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::query::{QueryFilter, With, Without};
-use bevy_ecs::system::{Query, SystemParam};
+use bevy_ecs::system::{Query, Res, SystemParam};
 use bevy_ecs::world::EntityMut;
 use bevy_egui::{EguiContext, egui};
 
@@ -20,25 +21,28 @@ use crate::{
 
 /// A [`Manager`] providing an editor UI for config fields through [egui].
 #[derive(Default)]
-pub struct Egui;
+pub struct Egui<S: Style = DefaultStyle> {
+    style: S,
+}
 
 /// A type erasure vtable attached to each scalar field to describe how to draw it in egui.
 #[derive(Component)]
-struct ScalarDraw {
-    draw_fn: fn(&mut egui::Ui, &mut EntityMut<'_>) -> egui::Response,
+struct ScalarDraw<S: Style> {
+    draw_fn: fn(&mut egui::Ui, &mut EntityMut<'_>, &S) -> egui::Response,
 }
 
-impl Manager for Egui {}
+impl<S: Style> Manager for Egui<S> {}
 
-impl<T> manager::Supports<T> for Egui
+impl<T, S> manager::Supports<T> for Egui<S>
 where
-    T: Editable + Send + Sync + 'static,
+    T: Editable<S> + Send + Sync + 'static,
     T::Metadata: Clone,
+    S: Style,
 {
     fn new_entity_for_type(&mut self) -> impl Bundle {
         (
             ScalarDraw {
-                draw_fn: |ui, entity| {
+                draw_fn: |ui, entity, style| {
                     #[derive(Hash)]
                     struct FieldIdSalt(Entity);
 
@@ -69,7 +73,8 @@ where
                              ScalarData type",
                         );
 
-                        let resp = T::show(ui, &mut field.0, &metadata, &mut temp_data, id_salt);
+                        let resp =
+                            T::show(ui, &mut field.0, &metadata, &mut temp_data, id_salt, style);
 
                         entity
                             .get_mut::<TempData<T::TempData>>()
@@ -123,27 +128,75 @@ struct TempData<T>(Option<T>);
 /// }
 /// ```
 #[derive(SystemParam)]
-pub struct Display<'w, 's, F: QueryFilter + 'static = ()> {
+pub struct Display<'w, 's, F: QueryFilter + 'static = (), M: Manager = ()> {
+    manager:    Option<Res<'w, manager::Instance<M>>>,
     node_query: Query<'w, 's, EntityMut<'static>, (Without<EguiContext>, F)>,
     root_query: Query<'w, 's, Entity, With<RootNode>>,
 }
 
-impl<F: QueryFilter + 'static> Display<'_, '_, F> {
-    /// Shows the config editor UI in `ui.
+impl<F, M> Display<'_, '_, F, M>
+where
+    F: QueryFilter + 'static,
+    M: Manager,
+{
+    /// Shows the config editor UI in `ui`,
+    /// assuming a [`DefaultStyle`] style.
+    ///
+    /// # Panics
+    /// This function panics if the world was not initialized with (a tuple containing)
+    /// an <code>[Egui]&lt;[DefaultStyle]&gt;</code> manager.
     pub fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
+        self.show_default::<DefaultStyle>(ui)
+    }
+
+    /// Shows the config editor UI in `ui`
+    /// with a [`Style`] that implements [`Default`].
+    ///
+    /// # Panics
+    /// This function panics if the world was not initialized with (a tuple containing) an [`Egui<S>`] manager.
+    pub fn show_default<S>(&mut self, ui: &mut egui::Ui) -> egui::Response
+    where
+        S: Style + Default,
+    {
+        Self::show_with_style(ui, &mut self.node_query, &self.root_query, &S::default())
+    }
+
+    /// Shows the config editor UI in `ui` for a non-default style.
+    ///
+    /// # Panics
+    /// This function panics if the world was not initialized with manager type `M`.
+    pub fn show_with<S: Style>(
+        &mut self,
+        ui: &mut egui::Ui,
+        get_manager: impl FnOnce(&M) -> &Egui<S>,
+    ) -> egui::Response {
+        let Some(manager) = self.manager.as_ref() else {
+            panic!("World was not initialized with manager type {}", type_name::<M>());
+        };
+        let style = &get_manager(manager).style;
+        Self::show_with_style(ui, &mut self.node_query, &self.root_query, style)
+    }
+
+    fn show_with_style<S: Style>(
+        ui: &mut egui::Ui,
+        node_query: &mut Query<EntityMut, (Without<EguiContext>, F)>,
+        root_query: &Query<Entity, With<RootNode>>,
+        style: &S,
+    ) -> egui::Response {
         ui.vertical(|ui| {
-            for root in &self.root_query {
-                show_node(ui, &mut self.node_query, root);
+            for root in root_query {
+                show_node(ui, node_query, root, style);
             }
         })
         .response
     }
 }
 
-fn show_node<F: QueryFilter + 'static>(
+fn show_node<F: QueryFilter + 'static, S: Style>(
     ui: &mut egui::Ui,
     node_query: &mut Query<EntityMut, F>,
     id: Entity,
+    style: &S,
 ) {
     {
         let entity = node_query.get(id).expect("config node must remain in the world once spawned");
@@ -164,14 +217,14 @@ fn show_node<F: QueryFilter + 'static>(
     let mut entity =
         node_query.get_mut(id).expect("config node must remain in the world once spawned");
     if let Some(&ScalarDraw { draw_fn }) = entity.get() {
-        draw_fn(ui, &mut entity);
+        draw_fn(ui, &mut entity, style);
     } else if let Some(children) = entity.get::<ChildNodeList>() {
         let children: Vec<_> = children.iter().copied().collect();
         let node = entity.get::<ConfigNode>().expect("show_node must provide a ConfigNode");
         let path = node.path.last().expect("node path must be nonempty").clone();
         ui.collapsing(path, |ui| {
             for child in children {
-                show_node(ui, node_query, child);
+                show_node(ui, node_query, child, style);
             }
         });
     }
@@ -183,7 +236,7 @@ fn show_node<F: QueryFilter + 'static>(
 /// enum discriminants do not implement this trait directly.
 /// However, all other scalar config field types do implement this trait,
 /// and this is the intended way to extend [`Egui`] support for other types.
-pub trait Editable: ConfigField {
+pub trait Editable<S: Style>: ConfigField {
     /// Temporary state used by the editor UI.
     /// See [`Editable::show`] for more information.
     type TempData: Send + Sync + 'static;
@@ -206,12 +259,13 @@ pub trait Editable: ConfigField {
         metadata: &Self::Metadata,
         temp: &mut Option<Self::TempData>,
         id_salt: impl Hash,
+        style: &S,
     ) -> egui::Response;
 }
 
 mod number_impl;
 
-impl Editable for String {
+impl Editable<DefaultStyle> for String {
     type TempData = ();
 
     fn show(
@@ -220,6 +274,7 @@ impl Editable for String {
         metadata: &Self::Metadata,
         _: &mut Option<()>,
         id_salt: impl Hash,
+        _: &DefaultStyle,
     ) -> egui::Response {
         let editor = if metadata.multiline {
             egui::TextEdit::multiline(value)
@@ -232,7 +287,7 @@ impl Editable for String {
     }
 }
 
-impl Editable for bool {
+impl Editable<DefaultStyle> for bool {
     type TempData = ();
 
     fn show(
@@ -241,15 +296,16 @@ impl Editable for bool {
         _: &Self::Metadata,
         _: &mut Option<()>,
         _: impl Hash,
+        _: &DefaultStyle,
     ) -> egui::Response {
         ui.add(egui::Checkbox::without_text(value))
     }
 }
 
-impl<T: EnumDiscriminant> manager::Supports<EnumDiscriminantWrapper<T>> for Egui {
+impl<T: EnumDiscriminant> manager::Supports<EnumDiscriminantWrapper<T>> for Egui<DefaultStyle> {
     fn new_entity_for_type(&mut self) -> impl Bundle {
-        ScalarDraw {
-            draw_fn: |ui, entity| {
+        ScalarDraw::<DefaultStyle> {
+            draw_fn: |ui, entity, _| {
                 #[derive(Hash)]
                 struct FieldIdSalt(Entity);
 
@@ -286,7 +342,7 @@ impl<T: EnumDiscriminant> manager::Supports<EnumDiscriminantWrapper<T>> for Egui
 }
 
 #[cfg(feature = "bevy_color")]
-impl Editable for bevy_color::Color {
+impl Editable<DefaultStyle> for bevy_color::Color {
     type TempData = ();
     fn show(
         ui: &mut egui::Ui,
@@ -294,6 +350,7 @@ impl Editable for bevy_color::Color {
         metadata: &Self::Metadata,
         _: &mut Option<()>,
         _: impl Hash,
+        _: &DefaultStyle,
     ) -> egui::Response {
         use bevy_color::ColorToPacked;
         use bevy_egui::egui::color_picker::{self, color_edit_button_srgba};
@@ -321,3 +378,12 @@ impl Editable for bevy_color::Color {
         resp
     }
 }
+
+/// Trait for marker types that allow extending [`Editable`] for third-party foreign types
+/// without violating the orphan rule.
+pub trait Style: Send + Sync + 'static {}
+
+/// The default [`Style`] for [`Editable`].
+#[derive(Default)]
+pub struct DefaultStyle;
+impl Style for DefaultStyle {}

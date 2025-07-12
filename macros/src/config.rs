@@ -100,7 +100,7 @@ fn gen_read_struct(
     input: &StructInput,
 ) -> TokenStream {
     let read_ident = &idents.read_ident;
-
+    let read_ident_lifetime = input.read_ident_lifetime();
     if input.named_fields {
         let read_fields = input.fields.iter().map(|field| {
             let field_vis = field.vis;
@@ -111,7 +111,7 @@ fn gen_read_struct(
             }
         });
         quote! {
-            #vis struct #read_ident<'a> {
+            #vis struct #read_ident #read_ident_lifetime {
                 #(#read_fields)*
             }
         }
@@ -123,7 +123,7 @@ fn gen_read_struct(
             }
         });
         quote! {
-            #vis struct #read_ident<'a> (
+            #vis struct #read_ident #read_ident_lifetime (
                 #(#read_fields)*
             );
         }
@@ -137,37 +137,42 @@ fn gen_read_enum(
     input: &EnumInput,
 ) -> TokenStream {
     let read_ident = &idents.read_ident;
-    let read_variants = input.variants.iter().map(|variant| {
-        let variant_ident = &variant.ident;
-        match variant.field_syntax {
-            FieldSyntax::Named => {
-                let read_fields = variant.fields.iter().map(|field| {
-                    let field_ident = field.ident.ident().expect("named_fields implies Ident");
-                    let field_ty = &field.data.ty;
+    let read_ident_lifetime = input.read_ident_lifetime();
+    let read_variants: Vec<_> = input
+        .variants
+        .iter()
+        .map(|variant| {
+            let variant_ident = &variant.ident;
+            match variant.field_syntax {
+                FieldSyntax::Named => {
+                    let read_fields = variant.fields.iter().map(|field| {
+                        let field_ident = field.ident.ident().expect("named_fields implies Ident");
+                        let field_ty = &field.data.ty;
+                        quote! {
+                            #field_ident: <#field_ty as #crate_path::ConfigField>::Reader<'a>,
+                        }
+                    });
                     quote! {
-                        #field_ident: <#field_ty as #crate_path::ConfigField>::Reader<'a>,
+                        #variant_ident { #(#read_fields)* }
                     }
-                });
-                quote! {
-                    #variant_ident { #(#read_fields)* }
                 }
-            }
-            FieldSyntax::Unnamed => {
-                let read_fields = variant.fields.iter().map(|field| {
-                    let field_ty = &field.data.ty;
+                FieldSyntax::Unnamed => {
+                    let read_fields = variant.fields.iter().map(|field| {
+                        let field_ty = &field.data.ty;
+                        quote! {
+                            <#field_ty as #crate_path::ConfigField>::Reader<'a>,
+                        }
+                    });
                     quote! {
-                        <#field_ty as #crate_path::ConfigField>::Reader<'a>,
+                        #variant_ident(#(#read_fields)*)
                     }
-                });
-                quote! {
-                    #variant_ident(#(#read_fields)*)
                 }
+                FieldSyntax::Unit => quote!(#variant_ident),
             }
-            FieldSyntax::Unit => quote!(#variant_ident),
-        }
-    });
+        })
+        .collect();
     quote! {
-        #vis enum #read_ident<'a> {
+        #vis enum #read_ident #read_ident_lifetime {
             #(#read_variants,)*
         }
     }
@@ -416,6 +421,7 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
 fn gen_impl_config_field(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenStream {
     let input_ident = &input.ident;
     let Idents { spawn_handle_ident, read_ident, changed_ident, .. } = idents;
+    let read_ident_lifetime = input.read_ident_lifetime();
     let spawn_world = gen_spawn_world(crate_path, idents, input);
     let (read_query_data, read_world) = gen_read_world(crate_path, idents, input);
     let (changed_query_data, changed_fn) = gen_changed_fn(crate_path, idents, input);
@@ -432,7 +438,7 @@ fn gen_impl_config_field(crate_path: &syn::Path, idents: &Idents, input: &Input)
     quote! {
         impl #crate_path::ConfigField for #input_ident {
             type SpawnHandle = #spawn_handle_ident;
-            type Reader<'a> = #read_ident<'a>;
+            type Reader<'a> = #read_ident #read_ident_lifetime;
             type ReadQueryData = #read_query_data;
             type Metadata = #crate_path::StructMetadata;
             type Changed = #changed_ident;
@@ -1098,6 +1104,13 @@ impl<'a> Input<'a> {
         let data = InputData::new(input, item_attrs, idents)?;
         Ok(Self { ident: &input.ident, vis: &input.vis, data })
     }
+
+    fn read_ident_lifetime(&self) -> TokenStream {
+        match &self.data {
+            InputData::Struct(input) => input.read_ident_lifetime(),
+            InputData::Enum(input) => input.read_ident_lifetime(),
+        }
+    }
 }
 
 enum InputData<'a> {
@@ -1184,6 +1197,14 @@ impl<'a> StructInput<'a> {
 
         Ok(Self { fields, named_fields: matches!(data.fields, syn::Fields::Named(_)) })
     }
+
+    fn read_ident_lifetime(&self) -> TokenStream {
+        if self.fields.is_empty() {
+            quote! {}
+        } else {
+            quote! {<'a>}
+        }
+    }
 }
 
 struct EnumInput<'a> {
@@ -1266,6 +1287,14 @@ impl<'a> EnumInput<'a> {
         }
 
         Ok(Self { discrim, variants })
+    }
+
+    fn read_ident_lifetime(&self) -> TokenStream {
+        if self.variants.iter().any(|variant| !variant.fields.is_empty()) {
+            quote! {<'a>}
+        } else {
+            quote! {}
+        }
     }
 }
 

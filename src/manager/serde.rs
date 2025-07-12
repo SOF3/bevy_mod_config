@@ -262,7 +262,7 @@ pub mod json {
         fn clone(&self) -> Self { JsonAdapter { formatter: self.formatter.clone() } }
     }
 
-    /// A dyn-compatible, clonable trait for constructing a `serde_json` formatter.
+    /// A dyn-compatible, cloneable trait for constructing a `serde_json` formatter.
     pub trait FormatterBuilder<F>: Send + Sync + 'static {
         /// Clones the formatter builder to a new box.
         fn clone(&self) -> Box<dyn FormatterBuilder<F>>;
@@ -318,7 +318,7 @@ pub mod json {
                 },
                 de: |mut entity, value| {
                     let value: T::Deserialize = serde_json::from_str(value.get()).map_err(serde_json::Error::custom)?;
-                    let mut entry = entity.get_mut::<ScalarData::<T>>().expect("type checked in serde qurey");
+                    let mut entry = entity.get_mut::<ScalarData::<T>>().expect("type checked in serde query");
                     entry.0.set_deserialized(value);
                     Ok(())
                 },

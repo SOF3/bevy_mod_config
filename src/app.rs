@@ -3,7 +3,7 @@ use core::any::{TypeId, type_name};
 
 use bevy_app::App;
 use bevy_ecs::resource::Resource;
-use bevy_ecs::system::{Query, Res, SystemParam};
+use bevy_ecs::system::{Local, Query, Res, SystemParam};
 use hashbrown::HashSet;
 
 use crate::{
@@ -140,5 +140,30 @@ impl<C: ConfigField> ReadConfig<'_, '_, C> {
     #[must_use]
     pub fn changed(&self) -> C::Changed {
         C::changed(&self.changed_query, &self.root_field.spawn_handle)
+    }
+}
+
+/// Access to a tree of config fields from a root config type `C`,
+/// and maintains a local state to track changes since the last check.
+#[derive(SystemParam)]
+pub struct ReadConfigChange<'w, 's, C: ConfigField> {
+    last_value:  Local<'s, Option<<C as ConfigField>::Changed>>,
+    read_config: ReadConfig<'w, 's, C>,
+}
+
+impl<C: ConfigField> ReadConfigChange<'_, '_, C> {
+    /// Reads the config field from the world.
+    #[must_use]
+    pub fn read(&self) -> C::Reader<'_> { self.read_config.read() }
+
+    /// Returns whether the config field has changed since the last check.
+    pub fn consume_change(&mut self) -> bool {
+        let changed = self.read_config.changed();
+        if self.last_value.as_ref().is_none_or(|v| *v != changed) {
+            *self.last_value = Some(changed);
+            true
+        } else {
+            false
+        }
     }
 }

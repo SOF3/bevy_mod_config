@@ -1,3 +1,98 @@
+//! A modular configuration framework for Bevy applications,
+//! decoupling configuration access and change detection from
+//! management utilities like persistence and UI.
+//!
+//! # Getting started
+//! First, we have to decide which [`Manager`]s we want to use in the application.
+//! Managers are global, type-agnostic utilities
+//! that can process all configuration data we register later on.
+//! For example, if we want a JSON serializer and an egui editor,
+//! we can define the global manager type in a type alias:
+//!
+//! ```
+//! # /*
+//! pub type ManagerType = (bevy_mod_config::manager::serde::Json, bevy_mod_config::manager::Egui);
+//! # */
+//! ```
+//!
+//! Now we can define the configuration data we want to use in different modules.
+//! Each module can define its own configuration with <code>#[derive([Config])]</code>:
+//!
+//! ```
+//! use bevy_mod_config::Config;
+//!
+//! #[derive(Config)]
+//! struct VideoSettings {
+//!     width:       u32,
+//!     height:      u32,
+//!     orientation: Orientation,
+//! }
+//!
+//! #[derive(Config)]
+//! #[config(expose(read))] // it is usually useful to expose the read type for enums
+//! enum Orientation {
+//!     Landscape,
+//!     Portrait,
+//! }
+//! ```
+//!
+//! Add it to the Bevy app during startup, referencing the `ManagerType` we just defined:
+//!
+//! ```
+//! # use bevy_app::{App, Plugin};
+//! use bevy_mod_config::AppExt;
+//! # #[derive(bevy_mod_config::Config)]
+//! # struct VideoSettings { width: u32 }
+//! # type ManagerType = ();
+//! struct VideoPlugin;
+//! impl Plugin for VideoPlugin {
+//!     fn build(&self, app: &mut App) { app.init_config::<ManagerType, VideoSettings>("video"); }
+//! }
+//! ```
+//!
+//! Now we can access the configuration data in systems with [`ReadConfig`].
+//! Note that `ReadConfig` gives us the "read" type of each field instead of the original type,
+//! so we have to match the neum on the read type we exposed earlier:
+//!
+//! ```
+//! use bevy_mod_config::ReadConfig;
+//!
+//! # #[derive(bevy_mod_config::Config)]
+//! # struct VideoSettings { orientation: Orientation }
+//! # #[derive(bevy_mod_config::Config)]
+//! # #[config(expose(read))]
+//! # enum Orientation { Landscape, Portrait }
+//! # fn display_landscape() {}
+//! # fn display_portrait() {}
+//! fn display_system(settings: bevy_mod_config::ReadConfig<VideoSettings>) {
+//!     let settings = settings.read();
+//!     match settings.orientation {
+//!         OrientationRead::Landscape => display_landscape(),
+//!         OrientationRead::Portrait => display_portrait(),
+//!     }
+//! }
+//! ```
+//!
+//! You can also perform updates lazily when there is a change:
+//!
+//! ```
+//! use bevy_mod_config::ReadConfigChange;
+//!
+//! # #[derive(bevy_mod_config::Config)]
+//! # struct VideoSettings { width: u32, height: u32 }
+//! # fn resize_window(_width: u32, _height: u32) {}
+//! fn resize_system(mut settings: ReadConfigChange<VideoSettings>) {
+//!     if settings.consume_change() {
+//!         let settings = settings.read();
+//!         resize_window(settings.width, settings.height);
+//!     }
+//! }
+//! ```
+//!
+//! Now that we have configuration data defined,
+//! we can use managers for persistence, loading and more.
+//! See the documentation of each [manager] module for examples.
+
 #![no_std]
 #![warn(missing_docs, clippy::pedantic)]
 
@@ -12,20 +107,21 @@ use bevy_ecs::entity::Entity;
 use bevy_ecs::query::QueryData;
 use bevy_ecs::world::{EntityRef, EntityWorldMut, World};
 
-mod impls;
+pub mod impls;
 pub use impls::BareField;
 mod query;
 pub use query::QueryLike;
 mod enum_;
 pub use enum_::{EnumDiscriminant, EnumDiscriminantMetadata, EnumDiscriminantWrapper};
 pub mod manager;
-pub use bevy_mod_config_macros::Config;
 pub use manager::Manager;
-
 pub mod __import;
 
+mod macro_doc;
+pub use macro_doc::Config;
+
 mod app;
-pub use app::{AppExt, ReadConfig};
+pub use app::{AppExt, ReadConfig, ReadConfigChange};
 
 mod tree;
 pub use tree::{

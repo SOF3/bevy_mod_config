@@ -5,7 +5,7 @@ use core::str::FromStr;
 
 use bevy_egui::egui;
 
-use super::Editable;
+use super::{DefaultStyle, Editable};
 use crate::ConfigField;
 use crate::impls::NumericMetadata;
 
@@ -78,7 +78,7 @@ impl Number for f64 {
     fn saturating_sub_usize(self, i: usize) -> Self { self - i as f64 }
 }
 
-impl<T> Editable for T
+impl<T> Editable<DefaultStyle> for T
 where
     T: Number,
 {
@@ -90,6 +90,7 @@ where
         metadata: &Self::Metadata,
         temp_data: &mut Option<Self::TempData>,
         id_salt: impl Hash,
+        _: &DefaultStyle,
     ) -> egui::Response {
         let mut value_str = temp_data.take().unwrap_or_else(|| value.to_string());
         let edit = egui::TextEdit::singleline(&mut value_str).id_salt(id_salt);

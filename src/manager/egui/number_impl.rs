@@ -80,7 +80,7 @@ impl Number for f64 {
 
 impl<T> Editable<DefaultStyle> for T
 where
-    T: Number + egui::emath::Numeric,
+    T: Number + egui::emath::Numeric + TryInto<f64>,
 {
     type TempData = String;
 
@@ -93,7 +93,7 @@ where
         _: &DefaultStyle,
     ) -> egui::Response {
         if metadata.slider {
-            ui.add(egui::Slider::new(value, metadata.min..=metadata.max).step_by(metadata.precision.unwrap_or(0.0)))
+            ui.add(egui::Slider::new(value, metadata.min..=metadata.max).step_by(metadata.precision.and_then(|n| n.try_into().ok()).unwrap_or(0.0)))
         } else {
             let mut value_str = temp_data.take().unwrap_or_else(|| value.to_string());
             let edit = egui::TextEdit::singleline(&mut value_str).id_salt(id_salt);

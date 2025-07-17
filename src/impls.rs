@@ -27,14 +27,66 @@ impl_numeric_config_field!(
 );
 
 /// Metadata for numeric scalar config fields.
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct NumericMetadata<T> {
     /// The default value.
-    pub default: T,
+    pub default:   T,
     /// The minimum possible value.
-    pub min:     Option<T>,
+    pub min:       T,
     /// The maximum possible value.
-    pub max:     Option<T>,
+    pub max:       T,
+    /// The precision of the value.
+    pub precision: Option<T>,
+    /// Whether to display the value as a slider in the UI.
+    pub slider:    bool,
+}
+
+impl<T: Numeric> Default for NumericMetadata<T> {
+    fn default() -> Self {
+        Self {
+            default:   T::ZERO,
+            min:       T::MIN,
+            max:       T::MAX,
+            precision: Some(T::ONE),
+            slider:    false,
+        }
+    }
+}
+
+trait Numeric: Sized {
+    const MIN: Self;
+    const MAX: Self;
+    const ZERO: Self;
+    const ONE: Self;
+}
+
+macro_rules! impl_int {
+    ($($ty:ty),*) => {
+        $(
+            impl Numeric for $ty {
+                const MIN: Self = Self::MIN;
+                const MAX: Self = Self::MAX;
+                const ZERO: Self = 0;
+                const ONE: Self = 1;
+            }
+        )*
+    };
+}
+
+impl_int!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
+
+impl Numeric for f32 {
+    const MIN: Self = f32::MIN;
+    const MAX: Self = f32::MAX;
+    const ZERO: Self = 0.0;
+    const ONE: Self = 1.0;
+}
+
+impl Numeric for f64 {
+    const MIN: Self = f64::MIN;
+    const MAX: Self = f64::MAX;
+    const ZERO: Self = 0.0;
+    const ONE: Self = 1.0;
 }
 
 impl_scalar_config_field!(

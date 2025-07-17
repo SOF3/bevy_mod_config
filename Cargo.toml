@@ -7,7 +7,7 @@ resolver = "2"
 
 [package]
 name = "bevy_mod_config"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 authors = ["SOFe <sofe2038@gmail.com>"]
 description = "A Bevy plugin for configuration management"

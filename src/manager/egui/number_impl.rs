@@ -80,7 +80,7 @@ impl Number for f64 {
 
 impl<T> Editable<DefaultStyle> for T
 where
-    T: Number,
+    T: Number + egui::emath::Numeric,
 {
     type TempData = String;
 
@@ -92,38 +92,42 @@ where
         id_salt: impl Hash,
         _: &DefaultStyle,
     ) -> egui::Response {
-        let mut value_str = temp_data.take().unwrap_or_else(|| value.to_string());
-        let edit = egui::TextEdit::singleline(&mut value_str).id_salt(id_salt);
-        let mut resp = ui.add(edit);
-        let parsed = value_str.parse::<Self>().ok();
-        *temp_data = Some(value_str);
-        if resp.changed()
-            && let Some(parsed) = parsed
-        {
-            let min = metadata.min.unwrap_or_else(T::min_value);
-            let max = metadata.max.unwrap_or_else(T::max_value);
-            *value = num_traits::clamp(parsed, min, max);
-        } else if resp.has_focus() {
-            ui.input_mut(|input| {
-                if let presses @ 1.. =
-                    input.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
-                {
-                    *value = value.saturating_add_usize(presses);
-                    *temp_data = Some(value.to_string());
-                    resp.mark_changed();
-                }
-                if let presses @ 1.. =
-                    input.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
-                {
-                    *value = value.saturating_sub_usize(presses);
-                    *temp_data = Some(value.to_string());
-                    resp.mark_changed();
-                }
-            });
-        }
-        if resp.lost_focus() {
-            *temp_data = None;
-        }
+        if metadata.slider {
+            ui.add(egui::Slider::new(value, metadata.min..=metadata.max).step_by(metadata.precision.unwrap_or(0.0)))
+        } else {
+            let mut value_str = temp_data.take().unwrap_or_else(|| value.to_string());
+            let edit = egui::TextEdit::singleline(&mut value_str).id_salt(id_salt);
+            let mut resp = ui.add(edit);
+            let parsed = value_str.parse::<Self>().ok();
+            *temp_data = Some(value_str);
+            if resp.changed()
+                && let Some(parsed) = parsed
+            {
+                let min = metadata.min;
+                let max = metadata.max;
+                *value = num_traits::clamp(parsed, min, max);
+            } else if resp.has_focus() {
+                ui.input_mut(|input| {
+                    if let presses @ 1.. =
+                        input.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
+                    {
+                        *value = value.saturating_add_usize(presses);
+                        *temp_data = Some(value.to_string());
+                        resp.mark_changed();
+                    }
+                    if let presses @ 1.. =
+                        input.count_and_consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
+                    {
+                        *value = value.saturating_sub_usize(presses);
+                        *temp_data = Some(value.to_string());
+                        resp.mark_changed();
+                    }
+                });
+            }
+            if resp.lost_focus() {
+                *temp_data = None;
+            }
         resp
+        }
     }
 }

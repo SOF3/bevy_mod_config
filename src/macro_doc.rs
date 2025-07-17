@@ -18,7 +18,7 @@
 /// ```
 /// #[derive(bevy_mod_config::Config)]
 /// struct Settings {
-///     #[config(default = 10, min = Some(0), max = Some(100))]
+///     #[config(default = 10, min = 0, max = 100)]
 ///     volume: u32,
 /// }
 /// ```

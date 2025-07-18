@@ -29,6 +29,7 @@ struct Settings {
     thickness: f32,
     rotate:    bool,
     color:     ChooseColor,
+    duration:  Duration,
 }
 
 #[derive(Config)]

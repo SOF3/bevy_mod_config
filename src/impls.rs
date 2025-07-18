@@ -2,6 +2,7 @@
 //! Exports the [metadata](crate::ConfigField::Metadata) structs for foreign scalar types.
 
 use alloc::string::String;
+use core::time::Duration;
 
 use bevy_ecs::entity::Entity;
 
@@ -23,7 +24,7 @@ macro_rules! impl_numeric_config_field {
 }
 
 impl_numeric_config_field!(
-    i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize, f32, f64,
+    i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize, f32, f64, Duration,
 );
 
 /// Metadata for numeric scalar config fields.
@@ -87,6 +88,13 @@ impl Numeric for f64 {
     const MAX: Self = f64::MAX;
     const ZERO: Self = 0.0;
     const ONE: Self = 1.0;
+}
+
+impl Numeric for Duration {
+    const MIN: Self = Duration::ZERO;
+    const MAX: Self = Duration::MAX;
+    const ZERO: Self = Duration::ZERO;
+    const ONE: Self = Duration::from_secs(1);
 }
 
 impl_scalar_config_field!(

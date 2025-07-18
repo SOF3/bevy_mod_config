@@ -264,6 +264,7 @@ pub trait Editable<S: Style>: ConfigField {
 }
 
 mod number_impl;
+pub use number_impl::NumericLike;
 
 impl Editable<DefaultStyle> for String {
     type TempData = ();

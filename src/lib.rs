@@ -52,7 +52,7 @@
 //!
 //! Now we can access the configuration data in systems with [`ReadConfig`].
 //! Note that `ReadConfig` gives us the "read" type of each field instead of the original type,
-//! so we have to match the neum on the read type we exposed earlier:
+//! so we have to match the enum on the read type we exposed earlier:
 //!
 //! ```
 //! use bevy_mod_config::ReadConfig;

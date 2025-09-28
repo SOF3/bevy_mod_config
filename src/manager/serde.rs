@@ -187,6 +187,8 @@ impl<'de, A: Adapter> serde::de::Visitor<'de> for Visitor<'_, A> {
             if let Some(&(entity_id, typed)) = self.adapter.index_map_by_de_key(&self.keys, key) {
                 let entity = self.world.entity_mut(entity_id);
                 typed.adapter.deserialize_map_value(entity, &mut map)?;
+            } else {
+                map.next_value::<serde::de::IgnoredAny>()?;
             }
         }
         Ok(())

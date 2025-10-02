@@ -25,8 +25,8 @@ pub trait QueryLike: Copy {
     }
 }
 
-impl<'query, D: QueryData, F: QueryFilter> QueryLike for &'query Query<'_, '_, D, F> {
-    type Item = <D::ReadOnly as QueryData>::Item<'query>;
+impl<'query, 's, D: QueryData, F: QueryFilter> QueryLike for &'query Query<'_, 's, D, F> {
+    type Item = <D::ReadOnly as QueryData>::Item<'query, 's>;
 
     fn get(self, entity: Entity) -> Option<Self::Item> { self.get(entity).ok() }
 }

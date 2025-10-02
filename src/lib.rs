@@ -237,9 +237,9 @@ pub trait ConfigField: 'static {
     type ChangedQueryData: QueryData;
 
     /// Reads config data for user consumption from a query of config data entities.
-    fn read_world<'a>(
+    fn read_world<'a, 's>(
         query: impl QueryLike<
-            Item = <<Self::ReadQueryData as QueryData>::ReadOnly as QueryData>::Item<'a>,
+            Item = <<Self::ReadQueryData as QueryData>::ReadOnly as QueryData>::Item<'a, 's>,
         >,
         spawn_handle: &Self::SpawnHandle,
     ) -> Self::Reader<'a>;
@@ -248,11 +248,11 @@ pub trait ConfigField: 'static {
     ///
     /// If the config data has been changed, the result returned by this function
     /// will be [unequal](PartialEq::ne) to the result obtained before the change.
-    fn changed<'a>(
+    fn changed<'a, 's>(
         query: impl QueryLike<
             Item = (
                 &'a ConfigNode,
-                <<Self::ChangedQueryData as QueryData>::ReadOnly as QueryData>::Item<'a>,
+                <<Self::ChangedQueryData as QueryData>::ReadOnly as QueryData>::Item<'a, 's>,
             ),
         >,
         spawn_handle: &Self::SpawnHandle,
@@ -319,8 +319,8 @@ macro_rules! impl_scalar_config_field {
             type Changed = $crate::FieldGeneration;
             type ChangedQueryData = ();
 
-            fn read_world<'a>(
-                query: impl $crate::QueryLike<Item = <<Self::ReadQueryData as $crate::__import::QueryData>::ReadOnly as $crate::__import::QueryData>::Item<'a>>,
+            fn read_world<'a, 's>(
+                query: impl $crate::QueryLike<Item = <<Self::ReadQueryData as $crate::__import::QueryData>::ReadOnly as $crate::__import::QueryData>::Item<'a, 's>>,
                 &spawn_handle: &$crate::__import::Entity,
             ) -> Self::Reader<'a> {
                 let data = query.get(spawn_handle).expect(
@@ -330,8 +330,8 @@ macro_rules! impl_scalar_config_field {
                 $map_fn(&data.as_ref().expect("scalar data component must remain valid with Self type").0)
             }
 
-            fn changed<'a>(
-                query: impl $crate::QueryLike<Item = (&'a $crate::ConfigNode, <<Self::ChangedQueryData as $crate::__import::QueryData>::ReadOnly as $crate::__import::QueryData>::Item<'a>)>,
+            fn changed<'a, 's>(
+                query: impl $crate::QueryLike<Item = (&'a $crate::ConfigNode, <<Self::ChangedQueryData as $crate::__import::QueryData>::ReadOnly as $crate::__import::QueryData>::Item<'a, 's>)>,
                 &spawn_handle: &$crate::__import::Entity,
             ) -> Self::Changed {
                 let entity = query.get(spawn_handle).expect(

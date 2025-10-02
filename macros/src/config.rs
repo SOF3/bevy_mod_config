@@ -368,9 +368,9 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
             type Changed = #crate_path::FieldGeneration;
             type ChangedQueryData = ();
 
-            fn read_world<'a>(
+            fn read_world<'a, 's>(
                 __config_query: impl #crate_path::QueryLike<
-                    Item = <<Self::ReadQueryData as #import::QueryData>::ReadOnly as #import::QueryData>::Item<'a>,
+                    Item = <<Self::ReadQueryData as #import::QueryData>::ReadOnly as #import::QueryData>::Item<'a, 's>,
                 >,
                 __config_spawn_handle: &Self::SpawnHandle,
             ) -> Self::Reader<'a> {
@@ -382,10 +382,10 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
                     .0 // Discrim
             }
 
-            fn changed<'a>(
+            fn changed<'a, 's>(
                 __config_query: impl #crate_path::QueryLike<Item = (
                     &'a #crate_path::ConfigNode,
-                    (),
+                    <<Self::ChangedQueryData as #import::QueryData>::ReadOnly as #import::QueryData>::Item<'a, 's>,
                 )>,
                 &__config_spawn_handle: &Self::SpawnHandle,
             ) -> Self::Changed {
@@ -444,18 +444,18 @@ fn gen_impl_config_field(crate_path: &syn::Path, idents: &Idents, input: &Input)
             type Changed = #changed_ident;
             type ChangedQueryData = #changed_query_data;
 
-            fn read_world<'a>(
+            fn read_world<'a, 's>(
                 __config_query: impl #crate_path::QueryLike<
-                    Item = <<Self::ReadQueryData as #import::QueryData>::ReadOnly as #import::QueryData>::Item<'a>,
+                    Item = <<Self::ReadQueryData as #import::QueryData>::ReadOnly as #import::QueryData>::Item<'a, 's>,
                 >,
                 __config_spawn_handle: &Self::SpawnHandle,
             ) -> Self::Reader<'a> { #read_world }
 
-            fn changed<'a>(
+            fn changed<'a, 's>(
                 __config_query: impl #crate_path::QueryLike<
                     Item = (
                         &'a #crate_path::ConfigNode,
-                        <<Self::ChangedQueryData as #import::QueryData>::ReadOnly as #import::QueryData>::Item<'a>,
+                        <<Self::ChangedQueryData as #import::QueryData>::ReadOnly as #import::QueryData>::Item<'a, 's>,
                     ),
                 >,
                 __config_spawn_handle: &Self::SpawnHandle,

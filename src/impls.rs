@@ -171,8 +171,12 @@ where
     type Changed = FieldGeneration;
     type ChangedQueryData = ();
 
-    fn read_world<'a>(
-        query: impl QueryLike<Item = Option<&'a ScalarData<Self>>>,
+    // Currently cannot inline the GAT due to https://github.com/rust-lang/rust/issues/147273
+    // causing a spurious E0195.
+    fn read_world<'a, 's>(
+        query: impl QueryLike<
+            Item = <<Self::ReadQueryData as bevy_ecs::query::QueryData>::ReadOnly as bevy_ecs::query::QueryData>::Item<'a, 's>,
+        >,
         &spawn_handle: &Entity,
     ) -> Self::Reader<'a> {
         let data = query.get(spawn_handle).expect(
@@ -182,8 +186,13 @@ where
         &data.as_ref().expect("scalar data component must remain valid with Self type").0.0
     }
 
-    fn changed<'a>(
-        query: impl QueryLike<Item = (&'a ConfigNode, ())>,
+    fn changed<'a, 's>(
+        query: impl QueryLike<
+            Item = (
+                &'a ConfigNode,
+                <<Self::ChangedQueryData as bevy_ecs::query::QueryData>::ReadOnly as bevy_ecs::query::QueryData>::Item<'a, 's>,
+            ),
+        >,
         &spawn_handle: &Entity,
     ) -> Self::Changed {
         let entity = query.get(spawn_handle).expect(

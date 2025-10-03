@@ -18,9 +18,11 @@ pub trait NumericLike: ConfigField + PartialOrd + Copy + Sized {
     fn to_string(&self) -> String;
 
     /// Adds a `usize` to the value, saturating at the maximum value if overflow occurs.
+    #[must_use]
     fn saturating_add_usize(self, i: usize) -> Self;
 
     /// Subtracts a `usize` from the value, saturating at the minimum value if underflow occurs.
+    #[must_use]
     fn saturating_sub_usize(self, i: usize) -> Self;
 
     /// Whether the metadata requests the value to be displayed as a slider in the UI.
@@ -50,6 +52,8 @@ macro_rules! impl_primitive {
         $metadata:ident => $precision:expr,
         $float:ident => $from_float:expr,
     ) => {
+        #[allow(clippy::cast_lossless, reason = "u128 to f64 is lossy")]
+        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)]
         impl NumericLike for $ty {
             fn parse_from_str(s: &str) -> Option<Self> {
                 s.parse::<Self>().ok()
@@ -100,10 +104,12 @@ macro_rules! impl_number_signed {
             impl_primitive! {
                 $ty,
                 saturating_add_usize: self, i => {
-                    self.saturating_add_unsigned(<$unsigned>::try_from(i).unwrap_or_else(|_| <$unsigned>::max_value()))
+                    self.saturating_add_unsigned(<$unsigned>::try_from(i).unwrap_or_else(|_|
+<$unsigned>::MAX,
+                    ))
                 },
                 saturating_sub_usize: self, i => {
-                    self.saturating_sub_unsigned(<$unsigned>::try_from(i).unwrap_or_else(|_| <$unsigned>::max_value()))
+                    self.saturating_sub_unsigned(<$unsigned>::try_from(i).unwrap_or_else(|_| <$unsigned>::MAX))
                 },
                 metadata => { metadata.precision.map(|n| n as f64) },
                 float => { float.round() as $ty },
@@ -127,10 +133,10 @@ macro_rules! impl_number_unsigned {
             impl_primitive! {
                 $ty,
                 saturating_add_usize: self, i => {
-                    self.saturating_add(Self::try_from(i).unwrap_or_else(|_| Self::max_value()))
+                    self.saturating_add(Self::try_from(i).unwrap_or_else(|_| Self::MAX))
                 },
                 saturating_sub_usize: self, i => {
-                    self.saturating_sub(Self::try_from(i).unwrap_or_else(|_| Self::max_value()))
+                    self.saturating_sub(Self::try_from(i).unwrap_or_else(|_| Self::MAX))
                 },
                 metadata => { metadata.precision.map(|n| n as f64) },
                 float => { float.round() as $ty },
@@ -233,9 +239,10 @@ where
             let mut value_float = value.as_float();
             let min_float = min.as_float();
             let max_float = max.as_float();
-            let resp = ui.add(egui::Slider::new(&mut value_float, min_float..=max_float).step_by(
-                T::metadata_precision(metadata).and_then(|n| n.try_into().ok()).unwrap_or(0.0),
-            ));
+            let resp = ui.add(
+                egui::Slider::new(&mut value_float, min_float..=max_float)
+                    .step_by(T::metadata_precision(metadata).unwrap_or(0.0)),
+            );
             if resp.changed() {
                 *value = T::from_float(value_float);
             }
@@ -249,15 +256,15 @@ where
             if resp.changed()
                 && let Some(mut parsed) = parsed
             {
-                if let Some(min) = T::metadata_min(metadata) {
-                    if parsed < min {
-                        parsed = min;
-                    }
+                if let Some(min) = T::metadata_min(metadata)
+                    && parsed < min
+                {
+                    parsed = min;
                 }
-                if let Some(max) = T::metadata_max(metadata) {
-                    if parsed > max {
-                        parsed = max;
-                    }
+                if let Some(max) = T::metadata_max(metadata)
+                    && parsed > max
+                {
+                    parsed = max;
                 }
                 *value = parsed;
             } else if resp.has_focus() {

@@ -2,10 +2,11 @@ use std::io::Cursor;
 use std::time::Duration;
 
 use bevy::asset::Assets;
-use bevy::core_pipeline::core_2d::Camera2d;
+use bevy::camera::Camera2d;
 use bevy::math::primitives::Rectangle;
 use bevy::math::{Quat, Vec2, Vec3};
-use bevy::render::mesh::{Mesh, Mesh2d};
+use bevy::mesh::{Mesh, Mesh2d};
+use bevy::sprite_render::{ColorMaterial, MeshMaterial2d};
 use bevy::transform::components::Transform;
 use bevy_app::AppExit;
 use bevy_color::Color;
@@ -17,7 +18,6 @@ use bevy_ecs::system::{Command, Commands, Local, Res, ResMut, Single};
 use bevy_ecs::world::World;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass, egui};
 use bevy_mod_config::{AppExt, Config, ReadConfig, manager};
-use bevy_sprite::{ColorMaterial, MeshMaterial2d};
 use bevy_time::Time;
 
 #[derive(Config)]

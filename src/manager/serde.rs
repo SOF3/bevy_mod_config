@@ -251,6 +251,7 @@ pub mod json {
         //
         // See <https://github.com/serde-rs/json/pull/1268>.
         /// Creates a new compact JSON manager.
+        #[must_use]
         pub fn new() -> Self {
             Self::new_with_adapter(JsonAdapter { formatter: Box::new(|| CompactFormatter) })
         }
@@ -332,10 +333,10 @@ pub mod json {
 
         type DeInput<'de> = &'de mut serde_json::Deserializer<Reader>;
         type DeKey<'de> = String;
-        fn index_map_by_de_key<'de, 'map, V>(
+        fn index_map_by_de_key<'map, V>(
             &self,
             map: &'map HashMap<Vec<String>, V>,
-            key: Self::DeKey<'de>,
+            key: Self::DeKey<'_>,
         ) -> Option<&'map V> {
             let key: Vec<_> = key.split('.').map(String::from).collect();
             map.get(&key)
@@ -370,12 +371,18 @@ pub mod json {
 
     impl<F: Formatter + Send + Sync + 'static> super::Serde<JsonAdapter<F>> {
         /// Serialize all config data in the world to a JSON string.
+        ///
+        /// # Errors
+        /// Errors from the serializer or UTF-8 validation.
         pub fn to_string(&self, world: &mut World) -> Result<String, serde_json::Error> {
             let bytes = self.to_writer(world, Vec::<u8>::new())?;
             String::from_utf8(bytes).map_err(<serde_json::Error as serde::ser::Error>::custom)
         }
 
         /// Serialize all config data in the world to a [writer](io::Write).
+        ///
+        /// # Errors
+        /// Errors from the serializer or the writer.
         pub fn to_writer<W: Any + io::Write>(
             &self,
             world: &mut World,
@@ -398,6 +405,9 @@ pub mod json {
         /// If you have found a use case where
         /// benchmarks show significant improvement from `&str` support,
         /// please open an issue.
+        ///
+        /// # Errors
+        /// Errors from the deserializer.
         pub fn from_reader<R: Any + io::Read>(
             &self,
             world: &mut World,

@@ -95,6 +95,7 @@
 
 #![no_std]
 #![warn(missing_docs, clippy::pedantic)]
+#![allow(clippy::missing_panics_doc)]
 
 extern crate alloc;
 

@@ -374,7 +374,7 @@ impl Editable<DefaultStyle> for bevy_color::Color {
 
         if resp.changed() {
             let [r, g, b, a] = color32.to_array();
-            *value = bevy_color::Color::srgba_u8(r, g, b, a)
+            *value = bevy_color::Color::srgba_u8(r, g, b, a);
         }
         resp
     }

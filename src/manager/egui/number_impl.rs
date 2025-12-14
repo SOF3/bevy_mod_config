@@ -172,9 +172,9 @@ pub trait FloatLikeWithSuffix: ConfigField + PartialOrd + Copy + Sized {
     /// Converts the value from a float.
     fn from_float(f: f64) -> Self;
     /// Adds a `usize` to the value.
-    fn add_usize(&self, i: usize) -> Self;
+    fn saturating_add_usize(&self, i: usize) -> Self;
     /// Subtracts a `usize` from the value.
-    fn sub_usize(&self, i: usize) -> Self;
+    fn saturating_sub_usize(&self, i: usize) -> Self;
     /// Converts the metadata to a [`NumericMetadata`] type.
     fn numeric_metadata(metadata: &Self::Metadata) -> NumericMetadata<Self>;
 }
@@ -188,8 +188,12 @@ impl<T: FloatLikeWithSuffix> NumericLike for T {
     }
     fn to_string(&self) -> String { alloc::format!("{}{}", self.as_float(), T::suffix()) }
 
-    fn saturating_add_usize(self, i: usize) -> Self { self.add_usize(i) }
-    fn saturating_sub_usize(self, i: usize) -> Self { self.sub_usize(i) }
+    fn saturating_add_usize(self, i: usize) -> Self {
+        FloatLikeWithSuffix::saturating_add_usize(&self, i)
+    }
+    fn saturating_sub_usize(self, i: usize) -> Self {
+        FloatLikeWithSuffix::saturating_sub_usize(&self, i)
+    }
 
     fn metadata_wants_slider(metadata: &Self::Metadata) -> bool {
         T::numeric_metadata(metadata).slider
@@ -212,8 +216,12 @@ impl FloatLikeWithSuffix for Duration {
     fn suffix() -> &'static str { "s" }
     fn as_float(&self) -> f64 { self.as_secs_f64() }
     fn from_float(f: f64) -> Self { Duration::from_secs_f64(f) }
-    fn add_usize(&self, i: usize) -> Self { *self + Duration::from_secs(i as u64) }
-    fn sub_usize(&self, i: usize) -> Self { *self - Duration::from_secs(i as u64) }
+    fn saturating_add_usize(&self, i: usize) -> Self {
+        self.saturating_add(Duration::from_secs(i as u64))
+    }
+    fn saturating_sub_usize(&self, i: usize) -> Self {
+        self.saturating_sub(Duration::from_secs(i as u64))
+    }
     fn numeric_metadata(metadata: &Self::Metadata) -> NumericMetadata<Self> { metadata.clone() }
 }
 

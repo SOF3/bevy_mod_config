@@ -28,7 +28,7 @@ pub use serde::Serde;
 pub trait Manager: Sized + Send + Sync + 'static {
     /// Returns a component bundle that tracks entity management.
     ///
-    /// This is particulraly useful for attaching vtable pointers to a component
+    /// This is particularly useful for attaching vtable pointers to a component
     /// so that the manager can later traverse the config tree
     /// without knowing the type of each field at compile time.
     fn new_entity<T>(&mut self) -> impl Bundle

@@ -1,8 +1,13 @@
+#![cfg_attr(
+    not(feature = "serde_json"),
+    allow(unused_imports, reason = "not bothering to optimize per-import cfg")
+)]
+
 use std::io::Cursor;
 use std::time::Duration;
 
 use bevy::asset::Assets;
-use bevy::camera::Camera2d;
+use bevy::camera::{Camera2d, ClearColor};
 use bevy::math::primitives::Rectangle;
 use bevy::math::{Quat, Vec2, Vec3};
 use bevy::mesh::{Mesh, Mesh2d};
@@ -28,12 +33,14 @@ struct Settings {
     #[config(default = 10.)]
     thickness: f32,
     rotate:    bool,
-    color:     ChooseColor,
+    #[config(discrim.default = ChooseColorDiscrim::Rgb)]
+    fg_color:  ChooseColor,
+    bg_color:  ChooseColor,
     duration:  Duration,
 }
 
 #[derive(Config)]
-#[config(expose(read))]
+#[config(expose(read, discrim))]
 enum ChooseColor {
     White,
     Rgb(u8, u8, u8),
@@ -41,7 +48,7 @@ enum ChooseColor {
 }
 
 impl ChooseColorRead<'_> {
-    fn to_color(&self) -> Color {
+    fn to_bevy_color(&self) -> Color {
         match self {
             Self::White => Color::WHITE,
             &Self::Rgb(r, g, b) => Color::srgb_u8(r, g, b),
@@ -173,7 +180,7 @@ fn init_line(
 ) {
     let mesh = meshes.add(Mesh::from(Rectangle { half_size: Vec2::new(10., 1.) }));
     let material = materials
-        .add(ColorMaterial { color: ChooseColorRead::White.to_color(), ..Default::default() });
+        .add(ColorMaterial { color: ChooseColorRead::White.to_bevy_color(), ..Default::default() });
     commands.spawn((
         Mesh2d(mesh),
         MeshMaterial2d(material),
@@ -187,6 +194,7 @@ fn display_line(
     mut shape: Single<(&MeshMaterial2d<ColorMaterial>, &mut Transform), With<MainShape>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut last_changed: Local<Option<(Duration, SettingsChanged)>>,
+    mut clear_color: ResMut<ClearColor>,
     time: Res<Time>,
 ) {
     let last_change_time = match *last_changed {
@@ -207,8 +215,10 @@ fn display_line(
 
     let settings = settings.read();
 
+    clear_color.0 = settings.bg_color.to_bevy_color();
+
     let (MeshMaterial2d(material_handle), ref mut shape_transform) = *shape;
-    materials.get_mut(material_handle).unwrap().color = settings.color.to_color();
+    materials.get_mut(material_handle).unwrap().color = settings.fg_color.to_bevy_color();
     shape_transform.scale.x = settings.text.len() as f32;
     shape_transform.scale.y = settings.thickness;
     shape_transform.rotation =

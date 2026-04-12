@@ -14,7 +14,7 @@ pub trait NumericLike: ConfigField + PartialOrd + Copy + Sized {
     fn parse_from_str(s: &str) -> Option<Self>;
 
     /// Converts the value to a string.
-    /// Should be roughly the inverse of [`parse_from_str`](NumericLike::parse_from_tsr).
+    /// Should be roughly the inverse of [`parse_from_str`](NumericLike::parse_from_str).
     fn to_string(&self) -> String;
 
     /// Adds a `usize` to the value, saturating at the maximum value if overflow occurs.

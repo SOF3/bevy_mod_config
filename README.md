@@ -31,8 +31,6 @@ Initialize the root field with `App::init_config`:
 
 ```rs
 type ManagerType = (Manager1, Manager2, ...);
-    bevy_mod_config::ScalarManager,
-)
 
 app.init_config::<ManagerType, Foo>("foo");
 ```

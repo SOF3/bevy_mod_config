@@ -3,11 +3,15 @@
 //! management utilities like persistence and UI.
 //!
 //! # Getting started
-//! First, we have to decide which [`Manager`]s we want to use in the application.
-//! Managers are global, type-agnostic utilities
-//! that can process all configuration data we register later on.
-//! For example, if we want a JSON serializer and an egui editor,
-//! we can define the global manager type in a type alias:
+//! First, decide which [`Manager`]s you want.
+//! Managers extend the framework with extra capabilities for your config fields,
+//! such as saving and loading from a file ([`manager::Serde`])
+//! or showing a live editor panel in your game ([`manager::Egui`]).
+//! Multiple managers can be composed as a tuple; use `()` if you don't need any yet.
+//!
+//! Declare your chosen managers as a type alias —
+//! you will pass it consistently to every [`init_config`](AppExt::init_config) call.
+//! For example, to use both a JSON serializer and an egui editor:
 //!
 //! ```
 //! # /*
@@ -113,7 +117,9 @@ pub use impls::BareField;
 mod query;
 pub use query::QueryLike;
 mod enum_;
-pub use enum_::{EnumDiscriminant, EnumDiscriminantMetadata, EnumDiscriminantWrapper};
+pub use enum_::{
+    EnumDiscriminant, EnumDiscriminantMetadata, EnumDiscriminantWrapper, EnumFieldMetadata,
+};
 pub mod manager;
 pub use manager::Manager;
 pub mod __import;

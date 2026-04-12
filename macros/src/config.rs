@@ -435,12 +435,23 @@ fn gen_impl_config_field(crate_path: &syn::Path, idents: &Idents, input: &Input)
 
     let import = quote!(#crate_path::__import);
 
+    let (metadata_type, metadata_param) = match &input.data {
+        InputData::Enum(_) => {
+            let discrim_ident = idents.discrim_ident().expect("Enum must have a discriminant type");
+            (
+                quote!(#crate_path::EnumFieldMetadata<#discrim_ident>),
+                quote!(__config_outer_metadata: Self::Metadata),
+            )
+        }
+        InputData::Struct(_) => (quote!(#crate_path::StructMetadata), quote!(_: Self::Metadata)),
+    };
+
     quote! {
         impl #crate_path::ConfigField for #input_ident {
             type SpawnHandle = #spawn_handle_ident;
             type Reader<'a> = #read_ident #read_ident_lifetime;
             type ReadQueryData = #read_query_data;
-            type Metadata = #crate_path::StructMetadata;
+            type Metadata = #metadata_type;
             type Changed = #changed_ident;
             type ChangedQueryData = #changed_query_data;
 
@@ -468,7 +479,7 @@ fn gen_impl_config_field(crate_path: &syn::Path, idents: &Idents, input: &Input)
             fn spawn_world(
                 __config_world: &mut #import::World,
                 __config_ctx: #crate_path::SpawnContext,
-                _: Self::Metadata,
+                #metadata_param,
             ) -> Self::SpawnHandle { #spawn_world }
         }
     }
@@ -488,24 +499,33 @@ fn gen_spawn_world(crate_path: &syn::Path, idents: &Idents, input: &Input) -> To
             ))
         }
     };
-    let spawn_fields = field_iter.map(|(field, assign_discrim_entity, dependency_variant)| {
+    let spawn_fields = field_iter.map(|(field, is_enum_discrim, dependency_variant)| {
         let field_ident = &field.spawn_handle_field;
         let field_ty = &field.ty;
         let hierarchy_key = &field.hierarchy_key;
         let metadata_paths = field.metadata.iter().map(|entry| &entry.path);
         let metadata_values = field.metadata.iter().map(|entry| &entry.value);
+        let initial_config_metadata = if is_enum_discrim {
+            quote! {
+                __config_outer_metadata.discrim
+            }
+        } else {
+            quote! {{
+                type __Struct<T> = T;
+                <__Struct<
+                    <#field_ty as #crate_path::ConfigField>::Metadata,
+                > as #crate_path::__import::Default>::default()
+            }}
+        };
         let metadata = quote! {{
-            type __Struct<T> = T;
-            let mut __config_metadata = <__Struct<
-                <#field_ty as #crate_path::ConfigField>::Metadata,
-            > as #crate_path::__import::Default>::default();
+            let mut __config_metadata = #initial_config_metadata;
             #(
                 __config_metadata.#metadata_paths = #metadata_values;
             )*
             __config_metadata
         }};
 
-        let assign_discrim_entity = assign_discrim_entity.then(|| quote! {
+        let assign_discrim_entity = is_enum_discrim.then(|| quote! {
             __config_discrim_entity = __config_field_entity;
         });
         let with_dependency = dependency_variant.map(|variant| {

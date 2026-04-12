@@ -23,10 +23,49 @@ pub trait EnumDiscriminant: ConfigField + Eq + Sized + Copy + Send + Sync + 'sta
 pub struct EnumDiscriminantWrapper<T>(pub T);
 
 /// [Metadata](ConfigField::Metadata) type for enum discriminants.
+///
+/// `T` is the discrim type derived in `#[derive(Config)]` for the corresponding enum.
+/// Use `#[config(expose(discrim))]` and reference it as `{StructName}Discrim`.
 #[derive(Default, Clone)]
 pub struct EnumDiscriminantMetadata<T> {
-    /// The default variant.
-    pub default:     T,
-    /// Display as a step slider instead of a combo box.
-    pub step_slider: bool,
+    /// The default enum variant.
+    pub default: T,
+}
+
+/// [Metadata](ConfigField::Metadata) type for fields whose type is a [`Config`](crate::Config)-derived enum.
+///
+/// Used as the `Metadata` associated type when a `#[derive(Config)]` enum
+/// is referenced as a field in another `#[derive(Config)]` struct or enum.
+/// This allows per-field overrides of the default discriminant.
+#[derive(Clone)]
+pub struct EnumFieldMetadata<Discrim: ConfigField> {
+    /// Metadata for the enum discriminant.
+    /// The value has type [`EnumDiscriminantMetadata`] for the corresponding enum.
+    ///
+    /// # Example
+    /// ```
+    /// # use bevy_mod_config::Config;
+    /// #
+    /// #[derive(Config)]
+    /// #[config(expose(discrim))]
+    /// enum Fruit {
+    ///     Apple,
+    ///     Orange,
+    /// }
+    ///
+    /// #[derive(Config)]
+    /// struct Menu {
+    ///     lunch: Fruit,
+    ///     #[config(discrim.default = FruitDiscrim::Orange)]
+    ///     dinner: Fruit,
+    /// }
+    /// ```
+    pub discrim: Discrim::Metadata,
+}
+
+impl<Discrim: ConfigField> Default for EnumFieldMetadata<Discrim>
+where
+    Discrim::Metadata: Default,
+{
+    fn default() -> Self { Self { discrim: Discrim::Metadata::default() } }
 }

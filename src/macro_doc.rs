@@ -11,7 +11,7 @@
 ///
 /// The type of all fields must implement [`ConfigField`](crate::ConfigField),
 /// which may be [scalar types](crate::impl_scalar_config_field)
-/// or other `#[derie(Config)]` types.
+/// or other `#[derive(Config)]` types.
 ///
 /// [Metadata](crate::ConfigField::Metadata) for each field may be specified
 /// in the form `#[config(field.path = value_expr, ...)]`:
@@ -56,7 +56,7 @@
 /// ### `#[config(expose(discrim))]`
 /// Exposes the enum discriminant type.
 /// Must only be used on enum types.
-/// This is type is mostly used to interact with field managers as a generic parameter;
+/// This type is mostly used to interact with field managers as a generic parameter;
 /// it is unusual to use this type in user code.
 ///
 /// The default identifier is `{InputIdent}Discrim`.

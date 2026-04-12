@@ -77,5 +77,7 @@
 /// This is mostly only useful if the library name of `bevy_mod_config` was renamed in Cargo.toml.
 ///
 /// ## `#[config(discrim(...))]`
-/// Specifies the [metadata](crate::EnumDiscriminantMetadata) for the enum discriminant.
+/// Specifies the default [metadata](crate::EnumDiscriminantMetadata) for the enum discriminant.
+///
+/// This can be overridden at usage fields with `#[config(discrim.xxx = value_expr)]` on the field.
 pub use bevy_mod_config_macros::Config;

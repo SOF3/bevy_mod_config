@@ -19,8 +19,9 @@
 //! # */
 //! ```
 //!
-//! Now we can define the configuration data we want to use in different modules.
-//! Each module can define its own configuration with <code>#[derive([Config])]</code>:
+//! Now we can define the configuration data model as required.
+//! Multiple configuration roots are supported,
+//! so each plugin can define its own configuration with <code>#[derive([Config])]</code>:
 //!
 //! ```
 //! use bevy_mod_config::Config;
@@ -40,22 +41,26 @@
 //! }
 //! ```
 //!
-//! Add it to the Bevy app during startup, referencing the `ManagerType` we just defined:
+//! Refer ot the documentation of [`Config`] for more customization.
+//!
+//! Next, add it to the Bevy app during startup, referencing the `ManagerType` we just defined:
 //!
 //! ```
 //! # use bevy_app::{App, Plugin};
 //! use bevy_mod_config::AppExt;
+//!
 //! # #[derive(bevy_mod_config::Config)]
 //! # struct VideoSettings { width: u32 }
 //! # type ManagerType = ();
 //! struct VideoPlugin;
+//!
 //! impl Plugin for VideoPlugin {
 //!     fn build(&self, app: &mut App) { app.init_config::<ManagerType, VideoSettings>("video"); }
 //! }
 //! ```
 //!
 //! Now we can access the configuration data in systems with [`ReadConfig`].
-//! Note that `ReadConfig` gives us the "read" type of each field instead of the original type,
+//! `ReadConfig` gives us the "read" type of each field instead of the original type,
 //! so we have to match the enum on the read type we exposed earlier:
 //!
 //! ```
@@ -68,7 +73,7 @@
 //! # enum Orientation { Landscape, Portrait }
 //! # fn display_landscape() {}
 //! # fn display_portrait() {}
-//! fn display_system(settings: bevy_mod_config::ReadConfig<VideoSettings>) {
+//! fn display_system(settings: ReadConfig<VideoSettings>) {
 //!     let settings = settings.read();
 //!     match settings.orientation {
 //!         OrientationRead::Landscape => display_landscape(),
@@ -77,7 +82,10 @@
 //! }
 //! ```
 //!
-//! You can also perform updates lazily when there is a change:
+//! Note that `ReadConfig` must use the same type as the one passed to `init_config`.
+//!
+//! Use [`ReadConfigChange`] instead to observe changes.
+//! This change detection is on a per-configuration-root basis.
 //!
 //! ```
 //! use bevy_mod_config::ReadConfigChange;
@@ -96,6 +104,33 @@
 //! Now that we have configuration data defined,
 //! we can use managers for persistence, loading and more.
 //! See the documentation of each [manager] module for examples.
+//!
+//! # What's next
+//! - See [`Manager`] for implementing your own behavior on configuration data.
+//! - See [`ConfigField`] for implementing your own field types.
+//!
+//! A manager can only be used when all config fields in the app
+//! implement [`ConfigFieldFor`] for that manager,
+//! If you are writing a reusable plugin for other crates,
+//! you should accept a generic manager type parameter `M`:
+//!
+//! ```
+//! # use core::marker::PhantomData;
+//! # use bevy_app::{App, Plugin};
+//! # use bevy_mod_config::{AppExt, Config, ConfigFieldFor, Manager};
+//! struct MyPlugin<M>(PhantomData<M>);
+//! impl<M: Manager + Default> Plugin for MyPlugin<M>
+//! where
+//!     MyConf: ConfigFieldFor<M>,
+//! {
+//!     fn build(&self, app: &mut App) { app.init_config::<M, MyConf>("my_module"); }
+//! }
+//!
+//! #[derive(Config)]
+//! struct MyConf {
+//!     // ...
+//! }
+//! ```
 
 #![no_std]
 #![warn(missing_docs, clippy::pedantic)]
@@ -122,6 +157,7 @@ pub use enum_::{
 };
 pub mod manager;
 pub use manager::Manager;
+#[doc(hidden)]
 pub mod __import;
 
 mod macro_doc;
@@ -226,6 +262,9 @@ pub trait ConfigField: 'static {
     type ReadQueryData: QueryData;
 
     /// Type-specific metadata specified by the referrer.
+    ///
+    /// By convention, `Metadata` types should be a simple struct with public fields
+    /// such that users can assign to them directly in [`#[derive(Config)]`](crate::Config) fields.
     type Metadata: Default + 'static + Send + Sync;
 
     /// Type returned by [`ConfigField::changed`].

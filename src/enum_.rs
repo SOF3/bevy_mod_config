@@ -55,7 +55,7 @@ pub struct EnumFieldMetadata<Discrim: ConfigField> {
     ///
     /// #[derive(Config)]
     /// struct Menu {
-    ///     lunch: Fruit,
+    ///     lunch:  Fruit,
     ///     #[config(discrim.default = FruitDiscrim::Orange)]
     ///     dinner: Fruit,
     /// }

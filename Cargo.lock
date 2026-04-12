@@ -1085,6 +1085,7 @@ name = "bevy_mod_config_macros"
 version = "0.2.0"
 dependencies = [
  "either",
+ "itertools",
  "proc-macro2",
  "quote",
  "syn",

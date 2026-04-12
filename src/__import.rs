@@ -7,6 +7,7 @@ pub use core::convert::Into;
 pub use core::default::Default;
 pub use core::fmt::Debug;
 pub use core::marker::{Copy, Send, Sync};
+pub use core::ops::{Deref, DerefMut};
 pub use core::option::Option::{self, None, Some};
 pub use core::stringify;
 

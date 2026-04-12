@@ -12,6 +12,7 @@ proc-macro = true
 
 [dependencies]
 either = "1.15.0"
+itertools = "0.14.0"
 proc-macro2 = "1.0.95"
 quote = "1.0.40"
 syn = "2.0.104"

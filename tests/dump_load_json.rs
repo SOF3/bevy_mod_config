@@ -33,7 +33,7 @@ fn manager_type_default() -> ManagerType {
     )
 }
 #[cfg(not(feature = "serde_json"))]
-fn manager_type_default() -> ManagerType { () }
+fn manager_type_default() -> ManagerType {}
 
 #[test]
 fn test_run() {

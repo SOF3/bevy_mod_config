@@ -75,14 +75,18 @@ fn gen_spawn_handle(crate_path: &syn::Path, idents: &Idents, input: &Input) -> T
     });
     let spawn_handle_ident = &idents.spawn_handle_ident;
 
+    let generics = input.generics;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
     quote! {
         #[allow(non_snake_case)]
-        #vis struct #spawn_handle_ident {
+        #vis struct #spawn_handle_ident #generics #where_clause {
             node: #crate_path::__import::Entity,
             #(#spawn_fields)*
         }
 
-        impl #crate_path::SpawnHandle for #spawn_handle_ident {
+        impl #impl_generics #crate_path::SpawnHandle
+        for #spawn_handle_ident #ty_generics #where_clause {
             fn node(&self) -> #crate_path::__import::Entity {
                 self.node
             }
@@ -93,20 +97,25 @@ fn gen_spawn_handle(crate_path: &syn::Path, idents: &Idents, input: &Input) -> T
 fn gen_read(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenStream {
     match input.data {
         InputData::Struct(ref struct_input) => {
-            gen_read_struct(crate_path, input.vis, idents, struct_input)
+            gen_read_struct(crate_path, input.vis, input.generics, idents, struct_input)
         }
-        InputData::Enum(ref enum_input) => gen_read_enum(crate_path, input.vis, idents, enum_input),
+        InputData::Enum(ref enum_input) => {
+            gen_read_enum(crate_path, input.vis, input.generics, idents, enum_input)
+        }
     }
 }
 
 fn gen_read_struct(
     crate_path: &syn::Path,
     vis: &syn::Visibility,
+    generics: &syn::Generics,
     idents: &Idents,
     input: &StructInput,
 ) -> TokenStream {
     let read_ident = &idents.read_ident;
-    let read_ident_lifetime = input.read_ident_lifetime();
+    let read_ident_lifetime = input.read_ident_lifetime(true, generics);
+    let generics_where = &generics.where_clause;
+    let derives = derivative_generic(crate_path, generics, &[quote!(Clone), quote!(Copy)]);
     if input.named_fields {
         let read_fields = input.fields.iter().map(|field| {
             let field_vis = field.vis;
@@ -117,8 +126,8 @@ fn gen_read_struct(
             }
         });
         quote! {
-            #[derive(#crate_path::__import::Clone, #crate_path::__import::Copy)]
-            #vis struct #read_ident #read_ident_lifetime {
+            #derives
+            #vis struct #read_ident #read_ident_lifetime #generics_where {
                 #(#read_fields)*
             }
         }
@@ -130,10 +139,10 @@ fn gen_read_struct(
             }
         });
         quote! {
-            #[derive(#crate_path::__import::Clone, #crate_path::__import::Copy)]
-            #vis struct #read_ident #read_ident_lifetime (
+            #derives
+            #vis struct #read_ident #read_ident_lifetime(
                 #(#read_fields)*
-            );
+            ) #generics_where ;
         }
     }
 }
@@ -141,11 +150,13 @@ fn gen_read_struct(
 fn gen_read_enum(
     crate_path: &syn::Path,
     vis: &syn::Visibility,
+    generics: &syn::Generics,
     idents: &Idents,
     input: &EnumInput,
 ) -> TokenStream {
     let read_ident = &idents.read_ident;
-    let read_ident_lifetime = input.read_ident_lifetime();
+    let read_ident_lifetime = input.read_ident_lifetime(true, generics);
+    let generics_where = &generics.where_clause;
     let read_variants: Vec<_> = input
         .variants
         .iter()
@@ -179,9 +190,10 @@ fn gen_read_enum(
             }
         })
         .collect();
+    let derives = derivative_generic(crate_path, generics, &[quote!(Clone), quote!(Copy)]);
     quote! {
-        #[derive(#crate_path::__import::Clone, #crate_path::__import::Copy)]
-        #vis enum #read_ident #read_ident_lifetime {
+        #derives
+        #vis enum #read_ident #read_ident_lifetime #generics_where {
             #(#read_variants,)*
         }
     }
@@ -190,10 +202,10 @@ fn gen_read_enum(
 fn gen_changed(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenStream {
     match input.data {
         InputData::Struct(ref struct_input) => {
-            gen_changed_struct(crate_path, input.vis, idents, struct_input)
+            gen_changed_struct(crate_path, input.vis, input.generics, idents, struct_input)
         }
         InputData::Enum(ref enum_input) => {
-            gen_changed_enum(crate_path, input.vis, idents, enum_input)
+            gen_changed_enum(crate_path, input.vis, input.generics, idents, enum_input)
         }
     }
 }
@@ -201,10 +213,12 @@ fn gen_changed(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
 fn gen_changed_struct(
     crate_path: &syn::Path,
     vis: &syn::Visibility,
+    generics: &syn::Generics,
     idents: &Idents,
     input: &StructInput,
 ) -> TokenStream {
     let changed_ident = &idents.changed_ident;
+    let where_clause = &generics.where_clause;
 
     if input.named_fields {
         let changed_fields = input.fields.iter().map(|field| {
@@ -215,10 +229,14 @@ fn gen_changed_struct(
                 #field_vis #field_ident: <#field_ty as #crate_path::ConfigField>::Changed,
             }
         });
-        let changed_derives = changed_derives(crate_path);
+        let changed_derives = derivative_generic(
+            crate_path,
+            generics,
+            &[quote!(Clone), quote!(PartialEq), quote!(Eq)],
+        );
         quote! {
             #changed_derives
-            #vis struct #changed_ident {
+            #vis struct #changed_ident #generics #where_clause {
                 #(#changed_fields)*
             }
         }
@@ -229,12 +247,16 @@ fn gen_changed_struct(
                 <#field_ty as #crate_path::ConfigField>::Changed,
             }
         });
-        let changed_derives = changed_derives(crate_path);
+        let changed_derives = derivative_generic(
+            crate_path,
+            generics,
+            &[quote!(Clone), quote!(PartialEq), quote!(Eq)],
+        );
         quote! {
             #changed_derives
-            #vis struct #changed_ident (
+            #vis struct #changed_ident #generics (
                 #(#changed_fields)*
-            );
+            ) #where_clause;
         }
     }
 }
@@ -242,6 +264,7 @@ fn gen_changed_struct(
 fn gen_changed_enum(
     crate_path: &syn::Path,
     vis: &syn::Visibility,
+    generics: &syn::Generics,
     idents: &Idents,
     input: &EnumInput,
 ) -> TokenStream {
@@ -275,22 +298,14 @@ fn gen_changed_enum(
             FieldSyntax::Unit => quote!(#variant_ident),
         }
     });
-    let changed_derives = changed_derives(crate_path);
+    let changed_derives =
+        derivative_generic(crate_path, generics, &[quote!(Clone), quote!(PartialEq), quote!(Eq)]);
+    let where_clause = &generics.where_clause;
     quote! {
         #changed_derives
-        #vis enum #changed_ident {
+        #vis enum #changed_ident #generics #where_clause {
             #(#changed_variants,)*
         }
-    }
-}
-
-fn changed_derives(crate_path: &syn::Path) -> TokenStream {
-    quote! {
-        #[derive(
-            #crate_path::__import::Clone,
-            #crate_path::__import::PartialEq,
-            #crate_path::__import::Eq,
-        )]
     }
 }
 
@@ -430,10 +445,10 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
 fn gen_metadata(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenStream {
     match input.data {
         InputData::Struct(ref struct_input) => {
-            gen_metadata_struct(crate_path, input.vis, idents, struct_input)
+            gen_metadata_struct(crate_path, input.vis, input.generics, idents, struct_input)
         }
         InputData::Enum(ref enum_input) => {
-            gen_metadata_enum(crate_path, input.vis, idents, enum_input)
+            gen_metadata_enum(crate_path, input.vis, input.generics, idents, enum_input)
         }
     }
 }
@@ -441,10 +456,12 @@ fn gen_metadata(crate_path: &syn::Path, idents: &Idents, input: &Input) -> Token
 fn gen_metadata_struct(
     crate_path: &syn::Path,
     vis: &syn::Visibility,
+    generics: &syn::Generics,
     idents: &Idents,
     input: &StructInput,
 ) -> TokenStream {
     let ident = &idents.metadata_ident;
+    let where_clause = &generics.where_clause;
 
     let struct_ = if input.named_fields {
         let fields = input.fields.iter().map(|field| {
@@ -456,7 +473,7 @@ fn gen_metadata_struct(
             }
         });
         quote! {
-            #vis struct #ident {
+            #vis struct #ident #generics #where_clause {
                 #(#fields)*
             }
         }
@@ -469,15 +486,17 @@ fn gen_metadata_struct(
             }
         });
         quote! {
-            #vis struct #ident (
+            #vis struct #ident #generics (
                 #(#fields)*
-            );
+            ) #where_clause;
         }
     };
 
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let default_fields = input.default_metadata_fields(crate_path);
     let default_impl = quote! {
-        impl #crate_path::__import::Default for #ident {
+        impl #impl_generics #crate_path::__import::Default
+        for #ident #ty_generics #where_clause {
             fn default() -> Self {
                 Self #default_fields
             }
@@ -490,22 +509,35 @@ fn gen_metadata_struct(
 fn gen_metadata_enum(
     crate_path: &syn::Path,
     vis: &syn::Visibility,
+    generics: &syn::Generics,
     idents: &Idents,
     input: &EnumInput,
 ) -> TokenStream {
-    let ident = &idents.metadata_ident;
+    let metadata_ident = &idents.metadata_ident;
     let discrim_ident = idents.discrim_ident().expect("Enum must have a discriminant type");
+
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    let all_field_types: Vec<_> = input
+        .variants
+        .iter()
+        .flat_map(|variant| variant.fields.iter())
+        .map(|field| field.data.ty)
+        .collect();
+    let phantom_data = quote!(#crate_path::__import::PhantomData<(
+        #(<#all_field_types as #crate_path::ConfigField>::Metadata,)*
+    )>);
 
     let (variant_fields, variant_structs, variant_defaults): (Vec<_>, Vec<_>, Vec<_>) = input
         .variants
         .iter()
         .map(|variant| {
             let variant_field_ident = &variant.metadata_field;
-            let variant_struct_ident = format_ident!("{ident}Variant{}", &variant.ident);
+            let variant_struct_ident = format_ident!("{metadata_ident}Variant{}", &variant.ident);
 
             let variant_field = quote! {
                 #[allow(dead_code, reason = "variants with no inner fields may be unused")]
-                #vis #variant_field_ident: #variant_struct_ident,
+                #vis #variant_field_ident: #variant_struct_ident #ty_generics,
             };
 
             let variant_struct = match variant.field_syntax {
@@ -517,9 +549,11 @@ fn gen_metadata_enum(
                             #vis #field_ident: <#field_ty as #crate_path::ConfigField>::Metadata,
                         }
                     });
+
                     quote! {
-                        #vis struct #variant_struct_ident {
+                        #vis struct #variant_struct_ident #generics #where_clause {
                             #(#inner_fields)*
+                            __config_phantom: #phantom_data,
                         }
                     }
                 }
@@ -531,27 +565,40 @@ fn gen_metadata_enum(
                         }
                     });
                     quote! {
-                        #vis struct #variant_struct_ident (
+                        #vis struct #variant_struct_ident #generics (
                             #(#inner_fields)*
-                        );
+                            #phantom_data,
+                        ) #where_clause;
                     }
                 }
                 FieldSyntax::Unit => quote! {
-                    #vis struct #variant_struct_ident;
+                    #vis struct #variant_struct_ident #generics #where_clause {
+                        __config_phantom: #phantom_data,
+                    }
                 },
+            };
+            let phantom_name = if let FieldSyntax::Unnamed = variant.field_syntax {
+                let len = proc_macro2::Literal::usize_unsuffixed(variant.fields.len());
+                quote!(#len)
+            } else {
+                quote!(__config_phantom)
             };
 
             let variant_struct_default_fields = variant.default_metadata_fields(crate_path);
             let variant_struct_default_impl = quote! {
-                impl #crate_path::__import::Default for #variant_struct_ident {
+                impl #impl_generics #crate_path::__import::Default
+                for #variant_struct_ident #ty_generics #where_clause {
                     fn default() -> Self {
-                        Self #variant_struct_default_fields
+                        Self {
+                            #variant_struct_default_fields
+                            #phantom_name: #crate_path::__import::PhantomData,
+                        }
                     }
                 }
             };
 
             let variant_default = quote! {
-                #variant_field_ident: <#variant_struct_ident>::default(),
+                #variant_field_ident: <_>::default(),
             };
 
             (variant_field, quote!(#variant_struct #variant_struct_default_impl), variant_default)
@@ -560,12 +607,13 @@ fn gen_metadata_enum(
 
     quote! {
         #[allow(non_snake_case)]
-        #vis struct #ident {
+        #vis struct #metadata_ident #generics #where_clause {
             __deref: #crate_path::EnumFieldMetadata<#discrim_ident>,
             #(#variant_fields)*
         }
 
-        impl #crate_path::__import::Deref for #ident {
+        impl #impl_generics #crate_path::__import::Deref
+        for #metadata_ident #ty_generics #where_clause {
             type Target = #crate_path::EnumFieldMetadata<#discrim_ident>;
 
             fn deref(&self) -> &Self::Target {
@@ -573,7 +621,8 @@ fn gen_metadata_enum(
             }
         }
 
-        impl #crate_path::__import::DerefMut for #ident {
+        impl #impl_generics #crate_path::__import::DerefMut
+        for #metadata_ident #ty_generics #where_clause {
             fn deref_mut(&mut self) -> &mut Self::Target {
                 &mut self.__deref
             }
@@ -581,7 +630,8 @@ fn gen_metadata_enum(
 
         #(#variant_structs)*
 
-        impl #crate_path::__import::Default for #ident {
+        impl #impl_generics #crate_path::__import::Default
+        for #metadata_ident #ty_generics #where_clause {
             fn default() -> Self {
                 Self {
                     __deref: #crate_path::EnumFieldMetadata::default(),
@@ -595,10 +645,13 @@ fn gen_metadata_enum(
 fn gen_impl_config_field(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenStream {
     let input_ident = &input.ident;
     let Idents { spawn_handle_ident, read_ident, changed_ident, metadata_ident, .. } = idents;
-    let read_ident_lifetime = input.read_ident_lifetime();
+    let read_ident_lifetime = input.read_ident_lifetime(false);
     let spawn_world = gen_spawn_world(crate_path, idents, input);
     let (read_query_data, read_world) = gen_read_world(crate_path, idents, input);
     let (changed_query_data, changed_fn) = gen_changed_fn(crate_path, idents, input);
+
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let generic_params = input.generics.params.iter();
 
     let where_clauses = input.data.iter_field_data().map(|field| {
         let field_ty = &field.ty;
@@ -606,16 +659,24 @@ fn gen_impl_config_field(crate_path: &syn::Path, idents: &Idents, input: &Input)
             #field_ty: #crate_path::ConfigFieldFor<__ConfigManager>,
         }
     });
+    let where_clauses = match where_clause {
+        None => quote!(where #(#where_clauses)*),
+        Some(clause) => {
+            let predicates = clause.predicates.iter();
+            quote! ( where #(#predicates,)* #(#where_clauses)* )
+        }
+    };
 
     let import = quote!(#crate_path::__import);
 
     quote! {
-        impl #crate_path::ConfigField for #input_ident {
-            type SpawnHandle = #spawn_handle_ident;
+        impl #impl_generics #crate_path::ConfigField
+        for #input_ident #ty_generics #where_clause {
+            type SpawnHandle = #spawn_handle_ident #ty_generics;
             type Reader<'a> = #read_ident #read_ident_lifetime;
             type ReadQueryData = #read_query_data;
-            type Metadata = #metadata_ident;
-            type Changed = #changed_ident;
+            type Metadata = #metadata_ident #ty_generics;
+            type Changed = #changed_ident #ty_generics;
             type ChangedQueryData = #changed_query_data;
 
             fn read_world<'a, 's>(
@@ -636,9 +697,9 @@ fn gen_impl_config_field(crate_path: &syn::Path, idents: &Idents, input: &Input)
             ) -> Self::Changed { #changed_fn }
         }
 
-        impl<__ConfigManager: #crate_path::Manager>
-        #crate_path::ConfigFieldFor<__ConfigManager> for #input_ident
-        where #(#where_clauses)* {
+        impl<__ConfigManager: #crate_path::Manager, #(#generic_params,)*>
+        #crate_path::ConfigFieldFor<__ConfigManager> for #input_ident #ty_generics
+        #where_clauses {
             fn spawn_world(
                 __config_world: &mut #import::World,
                 __config_ctx: #crate_path::SpawnContext,
@@ -962,6 +1023,7 @@ fn gen_changed_fn_enum(
 
 fn dead_code_workaround(input: &Input) -> TokenStream {
     let input_ident = &input.ident;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let body = match &input.data {
         InputData::Struct(struct_input) => struct_input
             .fields
@@ -989,7 +1051,7 @@ fn dead_code_workaround(input: &Input) -> TokenStream {
                     })
                     .unzip();
                 quote! {
-                    fn #ctor_fn_ident(#(#params),*) -> #input_ident {
+                    fn #ctor_fn_ident #impl_generics (#(#params),*) -> #input_ident #ty_generics #where_clause {
                         #input_ident::#variant_ident {
                             #(#variant_fields),*
                         }
@@ -1026,9 +1088,29 @@ fn dead_code_workaround(input: &Input) -> TokenStream {
     };
     quote! {
         #[allow(dead_code, clippy::drop_non_drop)]
-        fn dead_code_workaround(v: #input_ident) {
+        fn dead_code_workaround #impl_generics(v: #input_ident #ty_generics) #where_clause {
             #body
         }
+    }
+}
+
+fn derivative_generic(
+    crate_path: &syn::Path,
+    generics: &syn::Generics,
+    which: &[TokenStream],
+) -> TokenStream {
+    let type_bounds = generics.type_params().filter(|param| param.colon_token.is_some()).map(
+        |syn::TypeParam { ident, colon_token, bounds, .. }| quote!(#ident #colon_token #bounds),
+    );
+    let where_bounds = generics.where_clause.iter().flat_map(|clause| clause.predicates.iter());
+    let bounds = quote!(#(#type_bounds,)* #(#where_bounds,)*);
+    let bounds = bounds.to_string();
+    quote! {
+        #[allow(clippy::expl_impl_clone_on_copy)]
+        #[derive(#crate_path::__import::Derivative)]
+        #(
+            #[derivative(#which(bound = #bounds))]
+        )*
     }
 }
 
@@ -1280,9 +1362,10 @@ impl Idents {
 }
 
 struct Input<'a> {
-    ident: &'a syn::Ident,
-    vis:   &'a syn::Visibility,
-    data:  InputData<'a>,
+    ident:    &'a syn::Ident,
+    vis:      &'a syn::Visibility,
+    generics: &'a syn::Generics,
+    data:     InputData<'a>,
 }
 
 impl<'a> Input<'a> {
@@ -1292,13 +1375,13 @@ impl<'a> Input<'a> {
         idents: &'a Idents,
     ) -> syn::Result<Self> {
         let data = InputData::new(input, item_attrs, idents)?;
-        Ok(Self { ident: &input.ident, vis: &input.vis, data })
+        Ok(Self { ident: &input.ident, vis: &input.vis, generics: &input.generics, data })
     }
 
-    fn read_ident_lifetime(&self) -> TokenStream {
+    fn read_ident_lifetime(&self, with_bounds: bool) -> TokenStream {
         match &self.data {
-            InputData::Struct(input) => input.read_ident_lifetime(),
-            InputData::Enum(input) => input.read_ident_lifetime(),
+            InputData::Struct(input) => input.read_ident_lifetime(with_bounds, self.generics),
+            InputData::Enum(input) => input.read_ident_lifetime(with_bounds, self.generics),
         }
     }
 }
@@ -1388,11 +1471,19 @@ impl<'a> StructInput<'a> {
         Ok(Self { fields, named_fields: matches!(data.fields, syn::Fields::Named(_)) })
     }
 
-    fn read_ident_lifetime(&self) -> TokenStream {
+    fn read_ident_lifetime(&self, with_bounds: bool, generics: &syn::Generics) -> TokenStream {
+        let generic_idents =
+            generics.type_params().map(|syn::TypeParam { ident, colon_token, bounds, .. }| {
+                if with_bounds { quote! (#ident #colon_token #bounds) } else { quote!(#ident) }
+            });
         if self.fields.is_empty() {
-            quote! {}
+            if generics.type_params().next().is_some() {
+                quote! {<#(#generic_idents,)*>}
+            } else {
+                quote! {}
+            }
         } else {
-            quote! {<'a>}
+            quote! {<'a, #(#generic_idents,)*>}
         }
     }
 
@@ -1491,11 +1582,19 @@ impl<'a> EnumInput<'a> {
         Ok(Self { discrim, variants })
     }
 
-    fn read_ident_lifetime(&self) -> TokenStream {
+    fn read_ident_lifetime(&self, with_bounds: bool, generics: &syn::Generics) -> TokenStream {
+        let generic_idents =
+            generics.type_params().map(|syn::TypeParam { ident, colon_token, bounds, .. }| {
+                if with_bounds { quote! (#ident #colon_token #bounds) } else { quote!(#ident) }
+            });
         if self.variants.iter().any(|variant| !variant.fields.is_empty()) {
-            quote! {<'a>}
+            quote! {<'a, #(#generic_idents,)*>}
         } else {
-            quote! {}
+            if generics.type_params().next().is_some() {
+                quote! {<#(#generic_idents,)*>}
+            } else {
+                quote! {}
+            }
         }
     }
 }
@@ -1550,7 +1649,7 @@ impl EnumVariant<'_> {
                 #field_ident: #metadata,
             }
         });
-        quote!({ #(#fields)* })
+        quote!( #(#fields)* )
     }
 }
 
@@ -1585,7 +1684,7 @@ impl ToTokens for InputFieldIdent<'_> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         match *self {
             InputFieldIdent::Index(index) => {
-                syn::LitInt::new(&format!("{index}"), Span::call_site()).to_tokens(tokens)
+                syn::LitInt::new(&format!("{index}"), Span::call_site()).to_tokens(tokens);
             }
             InputFieldIdent::Ident(ref ident) => tokens.extend(quote!(#ident)),
         }

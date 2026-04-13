@@ -255,7 +255,7 @@ pub trait ConfigField: 'static {
     /// The type returned when reading the config data from the world.
     ///
     /// `'a` is the lifetime of the receiver in [`ReadConfig::read`].
-    type Reader<'a>;
+    type Reader<'a>: Copy;
     /// The minimal components required to read the typed config fields under this field.
     ///
     /// For scalar fields, this is always `Option<&ScalarData<Self>>`.

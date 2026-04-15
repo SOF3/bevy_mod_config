@@ -1,62 +1,73 @@
 # bevy\_mod\_config
+A modular configuration framework for Bevy applications,
+decoupling configuration access and change detection from
+management utilities like persistence and UI.
 
-A bevy plugin for configuration management.
+# Why do I need a framework?
 
-## Concepts
-- Scalar: A non-composite config type, e.g. a number, string, color, direction, etc.
-- Root field: A top-level config field directly registered to the app.
-- Manager: A plugin that works on scalar config fields.
-- Reader: A type derived from `#[derive(Config)]` that can be used to access config values
-  through `ReadConfig` in systems.
+- As a library author, I want to declare only the configuration model my plugin needs,
+  so I can focus on what the library serves instead of how it is managed.
+- As a game developer, I want to choose how settings are presented, persisted, or transferred,
+  so I can compose many configurable libraries without coupling them to one workflow.
 
-## Usage
-Declare one or more config hierarchies with `#[derive(Config)]`:
+`bevy_mod_config` comes with batteries included:
+`manager::Serde` for persistence and `manager::Egui` for live editor UI,
+both reusable with the different config models.
+You can also write your own managers for other workflows like
+using another UI framework or synchronizing over the network.
+
+# How it looks
+Library code:
 
 ```rs
 #[derive(Config)]
-struct Foo {
-    thickness: i32,
-    color:     Color,
+struct WindowSettings {
+    #[config(default = 1920, min = 100)]
+    width:      u32,
+    #[config(default = 1280, min = 100)]
+    height:     u32,
 }
 
-#[derive(Config)]
-#[config(expose(read))] // Expose the generated `ColorRead`
-enum Color {
-    White,
-    Black,
+struct WindowPlugin<M>(PhantomData<M>);
+
+impl<M> Plugin for WindowPlugin<M>
+where
+    WindowSettings: ConfigFieldFor<M>,
+{
+    fn build(&self, app: &mut App) { app.init_config::<M, WindowSettings>("video"); }
+}
+
+fn apply_video(settings: ReadConfig<WindowSettings>) {
+    let settings = settings.read();
+    if settings.fullscreen {
+        // ...
+    }
+}
+
+fn resize_system(mut settings: ReadConfigChange<WindowSettings>) {
+    if settings.consume_change() {
+        let settings = settings.read();
+        resize_window(settings.width, settings.height);
+    }
 }
 ```
 
-Initialize the root field with `App::init_config`:
+User main code:
 
 ```rs
-type ManagerType = (Manager1, Manager2, ...);
+type ManagerType = (manager::Egui, manager::serde::Json);
 
-app.init_config::<ManagerType, Foo>("foo");
-```
-
-Root fields can be accessed from systems using `ReadConfig`:
-
-```rs
-fn my_system(foo: ReadConfig<Foo>) {
-    let foo = foo.read();
-    assert_eq!(foo.thickness, 3);
-    assert!(matches!(foo.color, ColorRead::White));
+fn main() {
+    App::new()
+        .add_plugins(WindowPlugin::<ManagerType>(PhantomData))
+        .add_systems(
+            EguiPrimaryContextPass,
+            |mut ctxs: EguiContexts, display: manager::egui::Display| {
+                egui::Window::new("Settings").show(ctxs.ctx_mut()?, |ui| {
+                    display.show(ui);
+                });
+                Ok(())
+            },
+        );
 }
 ```
-
-Note that `read()` returns the Reader type instead of the original type
-(similar to how `#[derive(QueryData)]` gives `XxxItem` to systems).
-This may have an impact on matching and passing values around.
-The Reader type may be accessed as `<Foo as ConfigField>::Read<'_>`,
-or directly exposed with `#[config(expose(read))]` after the derive.
-
-## Managers
-Managers enable systematic management of scalar config fields.
-
-- Storage:
-  - `bevy_mod_config::manager::Serde` exposes APIs to
-    load/save config values to/from serialized data.
-- Editors:
-  - `bevy_mod_config::manager::EguiEditor` provides an in-game `egui` editor
-    to modify config values live.

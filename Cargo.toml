@@ -13,6 +13,7 @@ authors = ["SOFe <sofe2038@gmail.com>"]
 description = "A Bevy plugin for configuration management"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/SOF3/bevy_mod_config"
+readme = "README.md"
 
 [package.metadata.docs.rs]
 all-features = true

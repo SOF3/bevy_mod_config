@@ -397,6 +397,7 @@ macro_rules! impl_scalar_config_field {
                 let manager_comps =
                     world.resource_mut::<$crate::manager::Instance<M>>().new_entity::<$ty>();
                 let mut entity = world.spawn((
+                        $crate::__import::BevyName::new("Scalar config field"),
                         $crate::ScalarData::<Self>($default_from_metadata(&metadata)),
                         $crate::ScalarMetadata::<Self>(metadata),
                         manager_comps,

@@ -1,6 +1,6 @@
 [package]
 name = "bevy_mod_config_macros"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 authors = ["SOFe <sofe2038@gmail.com>"]
 description = "Procedural macros for bevy_mod_config"

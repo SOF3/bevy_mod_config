@@ -431,6 +431,7 @@ fn gen_discrim(crate_path: &syn::Path, idents: &Idents, input: &Input) -> TokenS
                     .resource_mut::<#crate_path::manager::Instance<__ConfigManager>>()
                     .new_entity::<#crate_path::EnumDiscriminantWrapper<#discrim_ident>>();
                 let mut __config_entity = __config_world.spawn((
+                    #crate_path::__import::BevyName::new("Config enum discrim"),
                     #crate_path::ScalarData(#crate_path::EnumDiscriminantWrapper(__config_metadata.default)),
                     #crate_path::ScalarMetadata::<Self>(__config_metadata),
                     __config_manager_comp,
@@ -774,7 +775,7 @@ fn gen_spawn_world(crate_path: &syn::Path, idents: &Idents, input: &Input) -> To
         }
     });
     quote! {
-        let mut __config_node_entity = __config_world.spawn_empty();
+        let mut __config_node_entity = __config_world.spawn(#crate_path::__import::BevyName::new("Config node"));
         #crate_path::init_config_node(&mut __config_node_entity, __config_ctx.clone());
         let __config_node = __config_node_entity.id();
         let __config_discrim_entity: #crate_path::__import::Entity;

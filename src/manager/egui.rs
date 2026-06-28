@@ -9,6 +9,7 @@ use bevy_ecs::bundle::Bundle;
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::query::{QueryFilter, With, Without};
+use bevy_ecs::resource::IsResource;
 use bevy_ecs::system::{Query, Res, SystemParam};
 use bevy_ecs::world::EntityMut;
 use bevy_egui::{EguiContext, egui};
@@ -130,9 +131,12 @@ struct TempData<T>(Option<T>);
 #[derive(SystemParam)]
 pub struct Display<'w, 's, F: QueryFilter + 'static = (), M: Manager = ()> {
     manager:    Option<Res<'w, manager::Instance<M>>>,
-    node_query: Query<'w, 's, EntityMut<'static>, (Without<EguiContext>, F)>,
+    node_query: NodeQuery<'w, 's, F>,
     root_query: Query<'w, 's, Entity, With<RootNode>>,
 }
+
+type NodeQuery<'w, 's, F> =
+    Query<'w, 's, EntityMut<'static>, (Without<EguiContext>, Without<IsResource>, F)>;
 
 impl<F, M> Display<'_, '_, F, M>
 where
@@ -179,7 +183,7 @@ where
 
     fn show_with_style<S: Style>(
         ui: &mut egui::Ui,
-        node_query: &mut Query<EntityMut, (Without<EguiContext>, F)>,
+        node_query: &mut NodeQuery<F>,
         root_query: &Query<Entity, With<RootNode>>,
         style: &S,
     ) -> egui::Response {

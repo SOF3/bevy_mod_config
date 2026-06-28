@@ -1171,7 +1171,7 @@ checksum = "bff34eb29ff4b8a8688bc7299f14fb6b597461ca80fec03ed7d22939ab33e48f"
 
 [[package]]
 name = "bevy_mod_config"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "bevy",
  "bevy_app",

@@ -7,7 +7,7 @@ resolver = "2"
 
 [package]
 name = "bevy_mod_config"
-version = "0.6.2"
+version = "0.7.0"
 edition = "2024"
 authors = ["SOFe <sofe2038@gmail.com>"]
 description = "A Bevy plugin for configuration management"
@@ -29,26 +29,26 @@ bevy_color = ["dep:bevy_color"]
 [dependencies]
 bevy_mod_config_macros = { path = "macros", version = "0.3.2" }
 
-bevy_app = { version = "0.18.0", default-features = false }
-bevy_ecs = { version = "0.18.0", default-features = false }
+bevy_app = { version = "0.19.0", default-features = false }
+bevy_ecs = { version = "0.19.0", default-features = false }
 hashbrown = "0.15.4"
 variadics_please = "1.1.0"
 
 serde = { version = "1.0", default-features = false, optional = true, features = ["alloc"] }
 serde_json = { version = "1.0", default-features = false, optional = true, features = ["raw_value", "std"] }
-bevy_egui = { version = "0.39.1", default-features = false, optional = true }
-bevy_color = { version = "0.18.0", optional = true }
+bevy_egui = { version = "0.40.1", default-features = false, optional = true }
+bevy_color = { version = "0.19.0", optional = true }
 num-traits = { version = "0.2.19", optional = true }
 derivative = "2.2.0"
 
 [dev-dependencies]
-bevy_log = "0.18.0"
-bevy_time = "0.18.0"
-bevy_egui = { version = "0.39.1", default-features = false, features = ["default_fonts", "render"] }
-bevy_sprite = "0.18.0"
+bevy_log = "0.19.0"
+bevy_time = "0.19.0"
+bevy_egui = { version = "0.40.1", default-features = false, features = ["default_fonts", "render"] }
+bevy_sprite = "0.19.0"
 
 [dev-dependencies.bevy]
-version = "0.18.0"
+version = "0.19.0"
 default-features = false
 features = [
     "accesskit_unix",

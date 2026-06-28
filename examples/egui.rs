@@ -88,22 +88,11 @@ fn main() -> AppExit {
     app.add_systems(bevy_app::Startup, |mut commands: Commands| {
         commands.spawn(Camera2d);
     });
-    app.add_systems(EguiPrimaryContextPass, show_settings);
+    app.add_systems(EguiPrimaryContextPass, show_settings.before(DisplayLines));
     app.add_systems(bevy_app::Startup, init_line);
     app.add_systems(bevy_app::Update, set_clear_color);
-    app.add_systems(
-        bevy_app::Update,
-        display_line::<MainShape1>.after(show_settings).in_set(DisplayLines),
-    );
-    app.add_systems(
-        bevy_app::Update,
-        display_line::<MainShape2>.after(show_settings).in_set(DisplayLines),
-    );
-    #[cfg(feature = "serde_json")]
-    app.add_systems(
-        EguiPrimaryContextPass,
-        show_json_editor.after(show_settings).before(DisplayLines),
-    );
+    app.add_systems(bevy_app::Update, display_line::<MainShape1>.in_set(DisplayLines));
+    app.add_systems(bevy_app::Update, display_line::<MainShape2>.in_set(DisplayLines));
 
     app.run()
 }
@@ -111,13 +100,27 @@ fn main() -> AppExit {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
 struct DisplayLines;
 
-fn show_settings(mut contexts: EguiContexts, mut display: manager::egui::Display) {
+fn show_settings(
+    mut contexts: EguiContexts,
+    mut display: manager::egui::Display,
+    #[cfg(feature = "serde_json")] (mut editor_text, mut commands): (
+        ResMut<JsonEditorText>,
+        Commands,
+    ),
+) {
     let Ok(ctx) = contexts.ctx_mut() else { return };
 
-    egui::SidePanel::left("settings").show(ctx, |ui| {
+    let mut ui = egui::Ui::new(
+        ctx.clone(),
+        "background".into(),
+        egui::UiBuilder::new().layer_id(egui::LayerId::background()).max_rect(ctx.viewport_rect()),
+    );
+    egui::Panel::left("settings").show_inside(&mut ui, |ui| {
         ui.heading("Settings");
         display.show(ui);
     });
+    #[cfg(feature = "serde_json")]
+    show_json_editor(&mut ui, &mut editor_text, &mut commands);
 }
 
 #[cfg(feature = "serde_json")]
@@ -131,6 +134,8 @@ struct DumpJsonCommand;
 
 #[cfg(feature = "serde_json")]
 impl Command for DumpJsonCommand {
+    type Out = ();
+
     fn apply(self, world: &mut World) {
         let manager = world.resource::<manager::Instance<ManagerType>>();
         match manager.0.clone().to_string(world) {
@@ -152,6 +157,8 @@ struct LoadJsonCommand;
 
 #[cfg(feature = "serde_json")]
 impl Command for LoadJsonCommand {
+    type Out = ();
+
     fn apply(self, world: &mut World) {
         let editor = world.resource_mut::<JsonEditorText>();
         let Some(text) = editor.text.clone() else {
@@ -167,13 +174,11 @@ impl Command for LoadJsonCommand {
 
 #[cfg(feature = "serde_json")]
 fn show_json_editor(
-    mut contexts: EguiContexts,
-    mut editor_text: ResMut<JsonEditorText>,
-    mut commands: Commands,
+    ui: &mut egui::Ui,
+    editor_text: &mut ResMut<JsonEditorText>,
+    commands: &mut Commands,
 ) {
-    let Ok(ctx) = contexts.ctx_mut() else { return };
-
-    egui::SidePanel::right("json_editor").show(ctx, |ui| {
+    egui::Panel::right("json_editor").show_inside(ui, |ui| {
         ui.heading("JSON Editor");
 
         if ui.button("Dump JSON").clicked() {

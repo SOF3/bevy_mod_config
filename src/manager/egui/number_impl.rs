@@ -1,4 +1,5 @@
 use alloc::string::{String, ToString};
+use core::fmt;
 use core::hash::Hash;
 use core::time::Duration;
 
@@ -236,7 +237,7 @@ where
         value: &mut Self,
         metadata: &Self::Metadata,
         temp_data: &mut Option<Self::TempData>,
-        id_salt: impl Hash,
+        id_salt: impl fmt::Debug + Hash,
         _: &DefaultStyle,
     ) -> egui::Response {
         if let (true, Some(min), Some(max)) = (

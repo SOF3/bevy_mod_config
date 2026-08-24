@@ -3,6 +3,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::any::type_name;
+use core::fmt;
 use core::hash::Hash;
 
 use bevy_ecs::bundle::Bundle;
@@ -44,7 +45,7 @@ where
         (
             ScalarDraw {
                 draw_fn: |ui, entity, style| {
-                    #[derive(Hash)]
+                    #[derive(Debug, Hash)]
                     struct FieldIdSalt(Entity);
 
                     let id_salt = FieldIdSalt(entity.id());
@@ -262,7 +263,7 @@ pub trait Editable<S: Style>: ConfigField {
         value: &mut Self,
         metadata: &Self::Metadata,
         temp: &mut Option<Self::TempData>,
-        id_salt: impl Hash,
+        id_salt: impl fmt::Debug + Hash,
         style: &S,
     ) -> egui::Response;
 }
@@ -278,7 +279,7 @@ impl Editable<DefaultStyle> for String {
         value: &mut Self,
         metadata: &Self::Metadata,
         _: &mut Option<()>,
-        id_salt: impl Hash,
+        id_salt: impl fmt::Debug + Hash,
         _: &DefaultStyle,
     ) -> egui::Response {
         let editor = if metadata.multiline {
@@ -311,7 +312,7 @@ impl<T: EnumDiscriminant> manager::Supports<EnumDiscriminantWrapper<T>> for Egui
     fn new_entity_for_type(&mut self) -> impl Bundle {
         ScalarDraw::<DefaultStyle> {
             draw_fn: |ui, entity, _| {
-                #[derive(Hash)]
+                #[derive(Debug, Hash)]
                 struct FieldIdSalt(Entity);
 
                 let id_salt = FieldIdSalt(entity.id());

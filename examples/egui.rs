@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use bevy::asset::Assets;
 use bevy::camera::{Camera2d, ClearColor};
-use bevy::math::primitives::Rectangle;
+use bevy::shape::Rectangle;
 use bevy::math::{Quat, Vec2, Vec3};
 use bevy::mesh::{Mesh, Mesh2d};
 use bevy::sprite_render::{ColorMaterial, MeshMaterial2d};
@@ -115,7 +115,7 @@ fn show_settings(
         "background".into(),
         egui::UiBuilder::new().layer_id(egui::LayerId::background()).max_rect(ctx.viewport_rect()),
     );
-    egui::Panel::left("settings").show_inside(&mut ui, |ui| {
+    egui::Panel::left("settings").show(&mut ui, |ui| {
         ui.heading("Settings");
         display.show(ui);
     });
@@ -178,7 +178,7 @@ fn show_json_editor(
     editor_text: &mut ResMut<JsonEditorText>,
     commands: &mut Commands,
 ) {
-    egui::Panel::right("json_editor").show_inside(ui, |ui| {
+    egui::Panel::right("json_editor").show(ui, |ui| {
         ui.heading("JSON Editor");
 
         if ui.button("Dump JSON").clicked() {

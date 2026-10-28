@@ -631,7 +631,7 @@ dependencies = [
  "downcast-rs",
  "log",
  "thiserror 2.0.20",
- "variadics_please 2.0.0",
+ "variadics_please",
  "wasm-bindgen",
  "web-sys",
 ]
@@ -808,7 +808,7 @@ dependencies = [
  "itertools 0.14.0",
  "serde",
  "thiserror 2.0.20",
- "variadics_please 2.0.0",
+ "variadics_please",
 ]
 
 [[package]]
@@ -902,7 +902,7 @@ dependencies = [
  "slotmap",
  "smallvec",
  "thiserror 2.0.20",
- "variadics_please 2.0.0",
+ "variadics_please",
 ]
 
 [[package]]
@@ -1300,7 +1300,7 @@ dependencies = [
  "smallvec",
  "thiserror 2.0.20",
  "tracing",
- "variadics_please 2.0.0",
+ "variadics_please",
  "wgpu-types",
 ]
 
@@ -1329,7 +1329,7 @@ dependencies = [
  "rand",
  "serde",
  "thiserror 2.0.20",
- "variadics_please 2.0.0",
+ "variadics_please",
 ]
 
 [[package]]
@@ -1385,7 +1385,7 @@ dependencies = [
  "num-traits",
  "serde",
  "serde_json",
- "variadics_please 1.1.0",
+ "variadics_please",
 ]
 
 [[package]]
@@ -1548,7 +1548,7 @@ dependencies = [
  "smol_str",
  "thiserror 2.0.20",
  "uuid",
- "variadics_please 2.0.0",
+ "variadics_please",
  "wgpu-types",
 ]
 
@@ -1616,7 +1616,7 @@ dependencies = [
  "static_assertions",
  "thiserror 2.0.20",
  "tracing",
- "variadics_please 2.0.0",
+ "variadics_please",
  "wasm-bindgen",
  "weak-table",
  "web-sys",
@@ -1655,7 +1655,7 @@ dependencies = [
  "smallvec",
  "thiserror 2.0.20",
  "tracing",
- "variadics_please 2.0.0",
+ "variadics_please",
 ]
 
 [[package]]
@@ -1779,7 +1779,7 @@ dependencies = [
  "bevy_state_macros",
  "bevy_utils",
  "log",
- "variadics_please 2.0.0",
+ "variadics_please",
 ]
 
 [[package]]
@@ -5461,17 +5461,6 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
-
-[[package]]
-name = "variadics_please"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41b6d82be61465f97d42bd1d15bf20f3b0a3a0905018f38f9d6f6962055b0b5c"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
 
 [[package]]
 name = "variadics_please"
